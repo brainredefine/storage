@@ -1,13 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabaseBrowser } from '@/lib/supabaseClient'
+
+// Optional: ensure this page is dynamically rendered (prevents static export errors)
+export const dynamic = 'force-dynamic'
 
 const INPUT =
   'w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300'
 
-export default function LoginPage() {
+// --- Split into an inner component that uses useSearchParams ---
+function LoginInner() {
   const router = useRouter()
   const params = useSearchParams()
   const redirectTo = params.get('redirectTo') || '/'
@@ -27,7 +31,6 @@ export default function LoginPage() {
       const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password })
       if (error) throw error
 
-      // Rediriger vers set-password si flag 1re connexion
       const { data: { user } } = await supabaseBrowser.auth.getUser()
       const mustSet = Boolean(user?.user_metadata?.must_set_password)
       router.replace(mustSet ? '/set-password' : redirectTo)
@@ -40,7 +43,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-50 text-neutral-900">
+    <main className="min-h-screen bg-white dark:bg-white text-neutral-900">
       <div className="mx-auto max-w-md px-6 py-16">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold">Sign in</h1>
@@ -92,5 +95,14 @@ export default function LoginPage() {
         </p>
       </div>
     </main>
+  )
+}
+
+// --- Page component wrapped in Suspense ---
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-white dark:bg-white" />}>
+      <LoginInner />
+    </Suspense>
   )
 }
