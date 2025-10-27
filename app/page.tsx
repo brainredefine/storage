@@ -129,19 +129,22 @@ function ComboBox({
 
       <div className="relative">
         <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          aria-autocomplete="list"
-          aria-controls={listboxId}
-          aria-expanded={open}
-          aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
-          placeholder={placeholder}
-          className={`${INPUT_BASE} pr-10`}
-          autoComplete="off"
-        />
+  ref={inputRef}
+  value={value}
+  onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
+  onFocus={() => setOpen(true)}
+  onKeyDown={onKeyDown}
+  role="combobox"                // ✅
+  aria-autocomplete="list"
+  aria-haspopup="listbox"        // ✅
+  aria-controls={listboxId}
+  aria-expanded={open}
+  aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
+  placeholder={placeholder}
+  className={`${INPUT_BASE} pr-10`}
+  autoComplete="off"
+/>
+
         <button
           type="button"
           aria-label={value ? 'Clear' : 'Toggle'}
@@ -219,8 +222,8 @@ export default function Page() {
       ]
       setTypes(extended)
 
-      const { data: a } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
-      setAssets((a || []).map((r: any) => r.asset))
+   const { data: a } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
+setAssets((a || []).map((r: { asset: string }) => r.asset))
     })()
   }, [])
 
@@ -234,14 +237,14 @@ export default function Page() {
           .eq('asset', asset)
           .order('tenant')
         if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
+        setTenants(uniqCaseInsensitive((data || []).map((r: { tenant: string }) => r.tenant)))
       } else {
         const { data, error } = await supabaseBrowser
           .from('seed_asset_tenants')
           .select('tenant')
           .eq('asset', asset).order('tenant')
         if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
+        setTenants(uniqCaseInsensitive((data || []).map((r: { tenant: string }) => r.tenant)))
       }
     })()
   }, [asset])
@@ -305,7 +308,15 @@ export default function Page() {
           if (!evt.lengthComputable) return
           setProgress(Math.round((evt.loaded / evt.total) * 100))
         }
-        xhr.onload = () => { xhr.status >= 200 && xhr.status < 300 ? (setProgress(100), resolve()) : reject(new Error(`upload failed (${xhr.status})`)) }
+        xhr.onload = () => {
+  if (xhr.status >= 200 && xhr.status < 300) {
+    setProgress(100)
+    resolve()
+  } else {
+    reject(new Error(`upload failed (${xhr.status})`))
+  }
+}
+
         xhr.onerror = () => reject(new Error('network error during upload'))
         xhr.ontimeout = () => reject(new Error('upload timeout'))
         xhr.onabort = () => reject(new Error('upload aborted'))
@@ -313,9 +324,10 @@ export default function Page() {
       })
 
       setStatus(`Uploaded ✅ → ${j.path}`)
-    } catch (e: any) {
-      setStatus(`Error: ${e?.message || 'Upload failed'}`)
-    } finally {
+    } catch (e: unknown) {
+  const msg = e instanceof Error ? e.message : 'Upload failed'
+  setStatus(`Error: ${msg}`)
+} finally {
       setLoading(false)
       xhrRef.current = null
     }
@@ -355,7 +367,7 @@ export default function Page() {
         {/* Disclaimer si Other */}
         {type === 'other' && (
           <div className={`text-sm ${TOKENS.radius} border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200`}>
-            <strong>Note:</strong> Select this only if you don't find what you are looking for, and please write{' '}
+            <strong>Note:</strong> Select this only if you don’t find what you are looking for, and please write{' '}
             <a className="underline" href="mailto:gauthier@redefine.group">gauthier@redefine.group</a> to add the missing folders.
           </div>
         )}

@@ -4,6 +4,32 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const runtime = 'nodejs'
 
+// ===== Types =====
+type SignBody = {
+  type: string
+  date?: string
+  asset?: string
+  tenant?: string
+  suffix?: string
+  originalFilename: string
+}
+
+type UploadTypeRow = {
+  type: string
+  requires_asset: boolean
+  requires_tenant: boolean
+  require_strict: boolean
+  allow_keyword: boolean
+  aliases: string[] | null
+}
+
+type AssetRow = { asset: string }
+
+type SignedUploadUrlData = {
+  signedUrl: string
+  path: string
+}
+
 // YYYY | YYYY-MM | YYYY-MM-DD
 const DATE_FLEX = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/
 
@@ -32,7 +58,7 @@ function buildFilename(args: {
   const { type, date, asset, tenant, suffix, originalFilename } = args
   const ext = (originalFilename.split('.').pop() || '').toLowerCase()
   const parts: string[] = [type]
-  if (date) parts.push(date)            // toujours possible
+  if (date) parts.push(date)
   if (asset) parts.push(asset)
   if (tenant) parts.push(slugify(tenant))
   if (suffix) parts.push(slugify(suffix))
@@ -41,7 +67,8 @@ function buildFilename(args: {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}))
+    // -------- Parse & validate body --------
+    const raw = (await req.json().catch(() => ({}))) as Partial<SignBody>
     const {
       type,
       date,
@@ -49,14 +76,7 @@ export async function POST(req: Request) {
       tenant,
       suffix,
       originalFilename,
-    }: {
-      type?: string
-      date?: string
-      asset?: string
-      tenant?: string
-      suffix?: string
-      originalFilename?: string
-    } = body
+    } = raw
 
     if (!type || !originalFilename) {
       return NextResponse.json({ error: 'Missing type or file name' }, { status: 400 })
@@ -65,31 +85,36 @@ export async function POST(req: Request) {
     const typeLc = type.toLowerCase()
     const isOther = typeLc === 'other'
 
-    // 1) Règles
-    let t: any = null
+    // -------- Rules for known types --------
+    let rules: UploadTypeRow | null = null
+
     if (!isOther) {
-      // Types connus (lease, pmreporting, etc.) → on applique les règles
       const { data: trows, error: terr } = await supabaseAdmin
         .from('v_upload_types')
-        .select('*')
+        .select<string, UploadTypeRow>('*')
         .eq('type', typeLc)
         .limit(1)
-      if (terr) throw terr
-      t = trows?.[0]
-      if (!t) return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
 
-      if (t.require_strict) {
-        if (!date) return NextResponse.json({ error: 'Date required for strict type' }, { status: 400 })
+      if (terr) throw terr
+      rules = trows?.[0] ?? null
+      if (!rules) {
+        return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
+      }
+
+      if (rules.require_strict) {
+        if (!date) {
+          return NextResponse.json({ error: 'Date required for strict type' }, { status: 400 })
+        }
         if (!isValidFlexibleDate(date)) {
           return NextResponse.json(
             { error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' },
             { status: 400 }
           )
         }
-        if (t.requires_asset && !asset) {
+        if (rules.requires_asset && !asset) {
           return NextResponse.json({ error: 'Asset required for this type' }, { status: 400 })
         }
-        if (t.requires_tenant && !tenant) {
+        if (rules.requires_tenant && !tenant) {
           return NextResponse.json({ error: 'Tenant required for this type' }, { status: 400 })
         }
       } else {
@@ -101,28 +126,30 @@ export async function POST(req: Request) {
         }
       }
 
-      // Asset connu si fourni
+      // Validate asset when provided
       if (asset) {
         const { data: arows, error: aerr } = await supabaseAdmin
           .from('v_upload_assets')
-          .select('asset')
+          .select<string, AssetRow>('asset')
           .eq('asset', asset)
           .limit(1)
+
         if (aerr) throw aerr
-        if (!arows?.length) return NextResponse.json({ error: 'Unknown asset' }, { status: 400 })
+        if (!arows || arows.length === 0) {
+          return NextResponse.json({ error: 'Unknown asset' }, { status: 400 })
+        }
       }
     } else {
-      // Type "other" → contraintes minimales
+      // Type "other" → minimal constraints
       if (date && !isValidFlexibleDate(date)) {
         return NextResponse.json(
           { error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' },
           { status: 400 }
         )
       }
-      // pas de vérif d'asset/tenant (libre)
     }
 
-    // 2) Nom final
+    // -------- Build final name & bucket --------
     const finalName = buildFilename({
       type: typeLc,
       date: date ?? null,
@@ -132,26 +159,40 @@ export async function POST(req: Request) {
       originalFilename,
     })
 
-    // 3) Bucket dynamique: other -> tbd / sinon -> inbox
-    const bucket =
-      isOther ? (process.env.TBD_BUCKET || 'tbd') : (process.env.INBOX_BUCKET || 'inbox')
+    const bucket = isOther
+      ? (process.env.TBD_BUCKET || 'tbd')
+      : (process.env.INBOX_BUCKET || 'inbox')
 
-    // 4) URL signée
+    // -------- Signed upload URL --------
     const { data: signed, error: sErr } = await supabaseAdmin
-      .storage.from(bucket)
+      .storage
+      .from(bucket)
       .createSignedUploadUrl(finalName)
-    if (sErr) throw sErr
 
-    return NextResponse.json({
-      signedUrl: signed.signedUrl,
+    if (sErr || !signed) {
+      throw sErr ?? new Error('Failed to create signed upload URL')
+    }
+
+    const payload: {
+      signedUrl: string
+      bucket: string
+      path: string
+      finalName: string
+      rules: UploadTypeRow | null
+      routedTo: 'tbd' | 'inbox'
+    } = {
+      signedUrl: (signed as SignedUploadUrlData).signedUrl,
       bucket,
       path: `${bucket}/${finalName}`,
       finalName,
-      rules: t,
+      rules,
       routedTo: isOther ? 'tbd' : 'inbox',
-    })
-  } catch (e: any) {
+    }
+
+    return NextResponse.json(payload)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Internal error'
     console.error(e)
-    return NextResponse.json({ error: e?.message ?? 'Internal error' }, { status: 500 })
+    return NextResponse.json({ error: msg } as Record<string, unknown>, { status: 500 })
   }
 }
