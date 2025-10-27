@@ -24,11 +24,17 @@ export async function middleware(req: NextRequest) {
   const url = req.nextUrl
   const { pathname } = url
 
-  // OPTIONS CORS pour API
+  // Autorise preflight CORS pour l'API
   if (pathname.startsWith('/api') && req.method === 'OPTIONS') return res
 
   // Assets publics
   if (isPublicAsset(pathname)) return res
+
+  // ⛳️ /set-password : public côté middleware
+  // (la page vérifiera la session Supabase; sans session => redirect /login)
+  if (pathname === '/set-password') {
+    return res
+  }
 
   // /login public, mais si déjà loggé → /
   if (pathname === '/login') {
@@ -41,21 +47,22 @@ export async function middleware(req: NextRequest) {
     return res
   }
 
-  // Protection globale
+  // Protection globale (pages & API)
   if (!session) {
+    // Pour les pages → redirect vers /login (avec retour post-auth)
     if (!pathname.startsWith('/api')) {
       const u = url.clone()
       u.pathname = '/login'
       u.searchParams.set('redirectTo', pathname + url.search)
       return NextResponse.redirect(u)
     }
+    // Pour l'API → 401 JSON
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   return res
 }
 
-// On fait tourner partout (le code ci-dessus filtre ce qui est public)
 export const config = {
   matcher: ['/:path*', '/api/:path*'],
 }
