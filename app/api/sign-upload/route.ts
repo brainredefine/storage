@@ -38,6 +38,16 @@ function isValidFlexibleDate(input?: string | null): boolean {
   return DATE_FLEX.test(input.trim())
 }
 
+// garde la casse du tenant, remplace seulement les caractères illégaux dans un nom de fichier
+function sanitizeTenantPreserveCase(input: string) {
+  return input
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '-') // caractères interdits
+    .replace(/\s+/g, ' ')          // normalise les espaces (mais on les garde)
+    .replace(/-+/g, '-')           // compacte les suites de -
+}
+
+// on garde le slug pour le suffix optionnel (pratique)
 function slugify(s: string) {
   return s
     .trim()
@@ -57,11 +67,11 @@ function buildFilename(args: {
 }) {
   const { type, date, asset, tenant, suffix, originalFilename } = args
   const ext = (originalFilename.split('.').pop() || '').toLowerCase()
-  const parts: string[] = [type]
+  const parts: string[] = [type]             // type en minuscules (comme avant)
   if (date) parts.push(date)
   if (asset) parts.push(asset)
-  if (tenant) parts.push(slugify(tenant))
-  if (suffix) parts.push(slugify(suffix))
+  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant)) // <-- préserve la casse
+  if (suffix) parts.push(slugify(suffix))                   // suffixe reste slugifié
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
 
@@ -69,14 +79,7 @@ export async function POST(req: Request) {
   try {
     // -------- Parse & validate body --------
     const raw = (await req.json().catch(() => ({}))) as Partial<SignBody>
-    const {
-      type,
-      date,
-      asset,
-      tenant,
-      suffix,
-      originalFilename,
-    } = raw
+    const { type, date, asset, tenant, suffix, originalFilename } = raw
 
     if (!type || !originalFilename) {
       return NextResponse.json({ error: 'Missing type or file name' }, { status: 400 })
@@ -154,7 +157,7 @@ export async function POST(req: Request) {
       type: typeLc,
       date: date ?? null,
       asset: asset ?? null,
-      tenant: tenant ?? null,
+      tenant: tenant ?? null,   // <-- on passe le tenant tel que fourni (casse préservée)
       suffix: suffix ?? null,
       originalFilename,
     })
