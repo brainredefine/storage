@@ -70,7 +70,7 @@ function buildFilename(args: {
   const parts: string[] = [type]             // type en minuscules (comme avant)
   if (date) parts.push(date)
   if (asset) parts.push(asset)
-  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant)) // <-- préserve la casse
+  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant)) // au lieu de slugifier en minuscules
   if (suffix) parts.push(slugify(suffix))                   // suffixe reste slugifié
   return `${parts.join('_')}.${ext || 'pdf'}`
 }

@@ -23,8 +23,12 @@ const DATE_PLACEHOLDER = 'YYYY or YYYY-MM or YYYY-MM-DD'
 const UPLOAD_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS || 300000)
 const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
 
-function slugify(s: string) {
-  return s.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-')
+function sanitizeTenantPreserveCase(s: string) {
+  return s
+    .trim()
+    .replace(/\s+/g, '-')           // espaces → tirets
+    .replace(/[^A-Za-z0-9-_]/g, '-')// caractères sales → tirets
+    .replace(/-+/g, '-');           // compacter
 }
 
 function uniqCaseInsensitive(arr: string[]) {
@@ -50,8 +54,8 @@ function previewFilename(o: {
   const parts: string[] = [o.type.toLowerCase()]
   if (o.date) parts.push(o.date)
   if (o.asset) parts.push(o.asset)
-  if (o.tenant) parts.push(slugify(o.tenant))
-  if (o.suffix) parts.push(slugify(o.suffix))
+  if (o.tenant) parts.push(sanitizeTenantPreserveCase(o.tenant)) 
+  if (o.suffix) parts.push(sanitizeTenantPreserveCase(o.suffix))
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
 
