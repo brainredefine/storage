@@ -83,8 +83,8 @@ export async function POST(req: Request) {
 
     if (!isOther) {
       const { data: trows, error: terr } = await supabaseAdmin
-        .from('type_routes')
-        .select<'type, requires_asset, requires_tenant, require_strict, allow_keyword', UploadTypeRow>(
+        .from('v_upload_types')
+        .select<'type, requires_asset, requires_tenant, require_strict, UploadTypeRow>(
           'type, requires_asset, requires_tenant, require_strict, allow_keyword'
         )
         .eq('active', true)
