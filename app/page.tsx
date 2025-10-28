@@ -24,11 +24,7 @@ const UPLOAD_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS || 30
 const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
 
 function sanitizeTenantPreserveCase(s: string) {
-  return s
-    .trim()
-    .replace(/\s+/g, '-')           // espaces → tirets
-    .replace(/[^A-Za-z0-9-_]/g, '-')// caractères sales → tirets
-    .replace(/-+/g, '-')            // compacter
+  return s.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').replace(/-+/g, '-')
 }
 
 function uniqCaseInsensitive(arr: string[]) {
@@ -59,20 +55,14 @@ function previewFilename(o: {
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
 
-// ========= ComboBox (accessible, high-contrast, neutral) =========
+// ========= ComboBox (filtrable) =========
 function useFilter(options: string[], query: string) {
   const q = (query || '').toLowerCase()
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
 }
 
 function ComboBox({
-  label,
-  value,
-  setValue,
-  options,
-  placeholder = '',
-  required = false,
-  noResultsLabel = 'No results',
+  label, value, setValue, options, placeholder = '', required = false, noResultsLabel = 'No results',
 }: {
   label: string
   value: string
@@ -92,29 +82,22 @@ function ComboBox({
   const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}`, [])
 
   function commitSelection(v: string) {
-    setValue(v)
-    setOpen(false)
-    setHighlight(-1)
-    inputRef.current?.focus()
+    setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus()
   }
-
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) setOpen(true)
     if (!hasOptions) return
     if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % filtered.length); return }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => (h <= 0 ? filtered.length - 1 : h - 1)); return }
-    if (e.key === 'Home') { e.preventDefault(); setHighlight(0); return }
-    if (e.key === 'End') { e.preventDefault(); setHighlight(filtered.length - 1); return }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); setHighlight((h) => (h <= 0 ? filtered.length - 1 : h - 1)); return }
+    if (e.key === 'Home')       { e.preventDefault(); setHighlight(0); return }
+    if (e.key === 'End')        { e.preventDefault(); setHighlight(filtered.length - 1); return }
     if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); commitSelection(filtered[highlight]); return }
-    if (e.key === 'Escape') { setOpen(false); setHighlight(-1); return }
+    if (e.key === 'Escape')     { setOpen(false); setHighlight(-1); return }
   }
-
   useEffect(() => {
     if (!listRef.current) return
     listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
-
-  // Close when clicking outside
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!open) return
@@ -138,20 +121,15 @@ function ComboBox({
           onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          role="combobox"                // ✅
-          aria-autocomplete="list"
-          aria-haspopup="listbox"        // ✅
-          aria-controls={listboxId}
+          role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls={listboxId}
           aria-expanded={open}
           aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
           placeholder={placeholder}
           className={`${INPUT_BASE} pr-10`}
           autoComplete="off"
         />
-
         <button
-          type="button"
-          aria-label={value ? 'Clear' : 'Toggle'}
+          type="button" aria-label={value ? 'Clear' : 'Toggle'}
           onClick={() => (value ? setValue('') : setOpen((v) => !v))}
           className={`absolute inset-y-0 right-0 grid w-10 place-items-center ${TOKENS.radius} text-neutral-500 hover:text-neutral-700`}
         >
@@ -165,15 +143,9 @@ function ComboBox({
             {hasOptions ? (
               filtered.map((opt, i) => (
                 <li
-                  id={`${listboxId}-option-${i}`}
-                  key={opt}
-                  data-index={i}
-                  role="option"
-                  aria-selected={i === highlight}
+                  id={`${listboxId}-option-${i}`} key={opt} data-index={i} role="option" aria-selected={i === highlight}
                   className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'} ${TOKENS.text}`}
-                  onMouseEnter={() => setHighlight(i)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commitSelection(opt)}
+                  onMouseEnter={() => setHighlight(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => commitSelection(opt)}
                 >
                   {opt}
                 </li>
@@ -196,7 +168,6 @@ export type UploadType = {
   requires_tenant: boolean
   require_strict: boolean
   allow_keyword: boolean
-  aliases: string[]
 }
 
 // ========= Page =========
@@ -212,7 +183,7 @@ export default function Page() {
   const [suffix, setSuffix] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
-  const [status, setStatus] = useState<string>('')
+  const [status, setStatus] = useState<string>('')  // messages UI
   const [loading, setLoading] = useState<boolean>(false)
   const [progress, setProgress] = useState<number>(0)
   const [dateError, setDateError] = useState<string>('')
@@ -227,34 +198,29 @@ export default function Page() {
         requires_tenant: boolean
         require_strict: boolean
         allow_keyword: boolean
-        aliases: string[] | null
         active?: boolean | null
       }
 
       const { data: t, error: tErr } = await supabaseBrowser
         .from('type_routes')
-        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, aliases, active')
+        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, active')
         .eq('active', true)
         .order('type', { ascending: true })
 
-      if (tErr) {
-        console.error(tErr)
-        return
-      }
+      if (tErr) { console.error(tErr); return }
 
       const mapped: UploadType[] = (t || []).map((r: TypeRouteRow) => ({
         label: r.type,
-        type: r.type, // on garde la casse telle quelle
+        type: r.type,
         requires_asset: !!r.requires_asset,
         requires_tenant: !!r.requires_tenant,
         require_strict: !!r.require_strict,
         allow_keyword: !!r.allow_keyword,
-        aliases: Array.isArray(r.aliases) ? r.aliases : [],
       }))
 
       const extended: UploadType[] = [
         ...mapped,
-        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
+        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false },
       ]
       setTypes(extended)
 
@@ -264,12 +230,7 @@ export default function Page() {
         .from('v_upload_assets')
         .select('asset')
         .order('asset')
-
-      if (aErr) {
-        console.error(aErr)
-      } else {
-        setAssets((a || []).map((r: AssetRow) => r.asset))
-      }
+      if (!aErr) setAssets((a || []).map((r: AssetRow) => r.asset))
     })()
   }, [])
 
@@ -277,25 +238,20 @@ export default function Page() {
     if (!asset) { setTenants([]); return }
     ;(async () => {
       type TenantRow = { tenant: string }
-
       if (TENANTS_SOURCE === 'folders') {
         const { data, error } = await supabaseBrowser
           .from('v_asset_tenants')
           .select('tenant')
           .eq('asset', asset)
           .order('tenant')
-
-        if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
+        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
       } else {
         const { data, error } = await supabaseBrowser
           .from('seed_asset_tenants')
           .select('tenant')
           .eq('asset', asset)
           .order('tenant')
-
-        if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
+        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
       }
     })()
   }, [asset])
@@ -303,7 +259,7 @@ export default function Page() {
   // Règles du type choisi (insensible à la casse)
   const rules = useMemo(() => {
     const tLc = type.trim().toLowerCase()
-    return types.find((x) => x.type.trim().toLowerCase() === tLc) || undefined
+    return types.find((x) => x.type.trim().toLowerCase() === tLc)
   }, [types, type])
 
   const isOther = type.trim().toLowerCase() === 'other'
@@ -316,7 +272,7 @@ export default function Page() {
     [type, date, asset, tenant, suffix, file]
   )
 
-  function abortUpload() { try { xhrRef.current?.abort() } catch { /* ignore */ } }
+  function abortUpload() { try { xhrRef.current?.abort() } catch {} }
 
   useEffect(() => {
     if (!date) { setDateError(''); return }
@@ -326,9 +282,7 @@ export default function Page() {
 
   async function onUpload() {
     try {
-      setStatus('')
-      setLoading(true)
-      setProgress(0)
+      setStatus(''); setLoading(true); setProgress(0)
 
       if (!file) throw new Error('Choose a file first')
       if (!type) throw new Error('Select a type')
@@ -337,7 +291,6 @@ export default function Page() {
       if (needsAsset && !asset) throw new Error('Asset is required')
       if (needsTenant && !tenant) throw new Error('Tenant is required')
 
-      // Envoie le type tel quel (casse conservée). Le backend est déjà tolérant.
       const res = await fetch('/api/sign-upload', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -365,14 +318,7 @@ export default function Page() {
           if (!evt.lengthComputable) return
           setProgress(Math.round((evt.loaded / evt.total) * 100))
         }
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            setProgress(100)
-            resolve()
-          } else {
-            reject(new Error(`upload failed (${xhr.status})`))
-          }
-        }
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? (setProgress(100), resolve()) : reject(new Error(`upload failed (${xhr.status})`))
         xhr.onerror = () => reject(new Error('network error during upload'))
         xhr.ontimeout = () => reject(new Error('upload timeout'))
         xhr.onabort = () => reject(new Error('upload aborted'))
@@ -384,19 +330,15 @@ export default function Page() {
       const msg = e instanceof Error ? e.message : 'Upload failed'
       setStatus(`Error: ${msg}`)
     } finally {
-      setLoading(false)
-      xhrRef.current = null
+      setLoading(false); xhrRef.current = null
     }
   }
 
-  // ========= Layout (neutral DA) =========
+  // ========= Layout =========
   return (
     <main className="mx-auto max-w-2xl p-6">
       <div className="flex justify-end">
-        <Link
-          href="/account/password"
-          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50"
-        >
+        <Link href="/account/password" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">
           Change password
         </Link>
       </div>
@@ -418,7 +360,7 @@ export default function Page() {
         />
 
         {/* Disclaimer si Other */}
-        {type.trim().toLowerCase() === 'other' && (
+        {isOther && (
           <div className={`text-sm ${TOKENS.radius} border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200`}>
             <strong>Note:</strong> Select this only if you don’t find what you are looking for, and please write{' '}
             <a className="underline" href="mailto:gauthier@redefine.group">gauthier@redefine.group</a> to add the missing folders.
@@ -442,35 +384,21 @@ export default function Page() {
 
         {/* Asset */}
         {needsAsset && (
-          <ComboBox
-            label="Asset"
-            required
-            value={asset}
-            setValue={setAsset}
-            options={assets}
-            placeholder="Type to search assets…"
-          />
+          <ComboBox label="Asset" required value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" />
         )}
 
         {/* Tenant */}
         {needsTenant && (
-          <ComboBox
-            label="Tenant"
-            required
-            value={tenant}
-            setValue={setTenant}
-            options={tenants}
-            placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'}
-          />
+          <ComboBox label="Tenant" required value={tenant} setValue={setTenant} options={tenants} placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'} />
         )}
 
-        {/* Suffix optionnel */}
+        {/* Suffix */}
         <label className="grid gap-1">
           <span className={LABEL_BASE}>Optional suffix</span>
           <input value={suffix} onChange={(e) => setSuffix(e.target.value)} className={INPUT_BASE} placeholder="e.g. v2, signed, draft" />
         </label>
 
-        {/* Fichier */}
+        {/* File */}
         <label className="grid gap-1">
           <span className={LABEL_BASE}>File *</span>
           <input
@@ -481,30 +409,21 @@ export default function Page() {
         </label>
 
         {/* Preview */}
-        {namePreview && (
-          <p className="text-sm text-neutral-600 dark:text-neutral-300"><strong>Preview:</strong> {namePreview}</p>
-        )}
+        {namePreview && <p className="text-sm text-neutral-600 dark:text-neutral-300"><strong>Preview:</strong> {namePreview}</p>}
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={onUpload}
-            disabled={loading}
-            className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition active:translate-y-px disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}
-          >
+          <button onClick={onUpload} disabled={loading} className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition active:translate-y-px disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}>
             {loading ? 'Uploading…' : 'Upload'}
           </button>
           {loading && (
-            <button
-              onClick={abortUpload}
-              className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:file:bg-neutral-800`}
-            >
+            <button onClick={abortUpload} className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:file:bg-neutral-800`}>
               Cancel
             </button>
           )}
         </div>
 
-        {/* Progression */}
+        {/* Progress */}
         {loading && (
           <div className="w-full">
             <div className="h-2 w-full rounded-full bg-neutral-200 dark:bg-neutral-700">
@@ -514,7 +433,7 @@ export default function Page() {
           </div>
         )}
 
-        {/* Statut */}
+        {/* Status */}
         {status && <p className="text-sm text-neutral-700 dark:text-neutral-300">{status}</p>}
       </section>
     </main>
