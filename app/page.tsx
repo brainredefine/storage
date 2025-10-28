@@ -202,8 +202,8 @@ export default function Page() {
       }
 
       const { data: t, error: tErr } = await supabaseBrowser
-        .from('type_routes')
-        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, active')
+        .from('v_upload_types')
+        .select('type, requires_asset, requires_tenant, require_strict, active')
         .eq('active', true)
         .order('type', { ascending: true })
 
