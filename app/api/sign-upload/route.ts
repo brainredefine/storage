@@ -156,13 +156,16 @@ export async function POST(req: Request) {
       throw sErr ?? new Error('Failed to create signed upload URL')
     }
 
+    // 🚫 pas d'assertion `as const` sur un ternaire
+    const routedTo: 'tbd' | 'inbox' = isOther ? 'tbd' : 'inbox'
+
     const payload = {
       signedUrl: (signed as SignedUploadUrlData).signedUrl,
       bucket,
       path: `${bucket}/${finalName}`,
       finalName,
       rules,
-      routedTo: (isOther ? 'tbd' : 'inbox') as const,
+      routedTo,
     }
 
     return NextResponse.json(payload)
