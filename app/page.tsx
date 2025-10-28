@@ -28,7 +28,7 @@ function sanitizeTenantPreserveCase(s: string) {
     .trim()
     .replace(/\s+/g, '-')           // espaces → tirets
     .replace(/[^A-Za-z0-9-_]/g, '-')// caractères sales → tirets
-    .replace(/-+/g, '-');           // compacter
+    .replace(/-+/g, '-')            // compacter
 }
 
 function uniqCaseInsensitive(arr: string[]) {
@@ -54,7 +54,7 @@ function previewFilename(o: {
   const parts: string[] = [o.type.toLowerCase()]
   if (o.date) parts.push(o.date)
   if (o.asset) parts.push(o.asset)
-  if (o.tenant) parts.push(sanitizeTenantPreserveCase(o.tenant)) 
+  if (o.tenant) parts.push(sanitizeTenantPreserveCase(o.tenant))
   if (o.suffix) parts.push(sanitizeTenantPreserveCase(o.suffix))
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
@@ -133,21 +133,21 @@ function ComboBox({
 
       <div className="relative">
         <input
-  ref={inputRef}
-  value={value}
-  onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
-  onFocus={() => setOpen(true)}
-  onKeyDown={onKeyDown}
-  role="combobox"                // ✅
-  aria-autocomplete="list"
-  aria-haspopup="listbox"        // ✅
-  aria-controls={listboxId}
-  aria-expanded={open}
-  aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
-  placeholder={placeholder}
-  className={`${INPUT_BASE} pr-10`}
-  autoComplete="off"
-/>
+          ref={inputRef}
+          value={value}
+          onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
+          aria-expanded={open}
+          aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
+          placeholder={placeholder}
+          className={`${INPUT_BASE} pr-10`}
+          autoComplete="off"
+        />
 
         <button
           type="button"
@@ -190,7 +190,10 @@ function ComboBox({
 
 // ========= Types =========
 export type UploadType = {
+  // logique interne en minuscule
   type: string
+  // affichage fidèle à la casse de type_routes
+  label: string
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
@@ -204,7 +207,7 @@ export default function Page() {
   const [assets, setAssets] = useState<string[]>([])
   const [tenants, setTenants] = useState<string[]>([])
 
-  const [type, setType] = useState('')
+  const [type, setType] = useState('')   // stocke la valeur minuscule
   const [date, setDate] = useState('')
   const [asset, setAsset] = useState('')
   const [tenant, setTenant] = useState('')
@@ -219,15 +222,32 @@ export default function Page() {
 
   useEffect(() => {
     ;(async () => {
-      const { data: t } = await supabaseBrowser.from('v_upload_types').select('*')
-      const extended = [
-        ...((t || []) as UploadType[]),
-        { type: 'other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
+      // Charge directement depuis type_routes pour récupérer la casse d'origine
+      const { data: t } = await supabaseBrowser
+        .from('type_routes')
+        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, aliases')
+        .eq('active', true)
+        .order('type', { ascending: true })
+
+      const extended: UploadType[] = [
+        ...((t || []).map((r: any) => ({
+          label: r.type,                 // fidèle à la casse d'origine
+          type: String(r.type || '').toLowerCase(), // normalisé minuscule pour la logique
+          requires_asset: !!r.requires_asset,
+          requires_tenant: !!r.requires_tenant,
+          require_strict: !!r.require_strict,
+          allow_keyword: !!r.allow_keyword,
+          aliases: Array.isArray(r.aliases) ? r.aliases : [],
+        })) as UploadType[]),
+
+        // Option "other"
+        { type: 'other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
       ]
       setTypes(extended)
 
-   const { data: a } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
-setAssets((a || []).map((r: { asset: string }) => r.asset))
+      // Assets
+      const { data: a } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
+      setAssets((a || []).map((r: { asset: string }) => r.asset))
     })()
   }, [])
 
@@ -289,7 +309,7 @@ setAssets((a || []).map((r: { asset: string }) => r.asset))
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          type,
+          type,                            // minuscule pour la logique backend
           date: date || undefined,
           asset: asset || undefined,
           tenant: tenant || undefined,
@@ -313,14 +333,13 @@ setAssets((a || []).map((r: { asset: string }) => r.asset))
           setProgress(Math.round((evt.loaded / evt.total) * 100))
         }
         xhr.onload = () => {
-  if (xhr.status >= 200 && xhr.status < 300) {
-    setProgress(100)
-    resolve()
-  } else {
-    reject(new Error(`upload failed (${xhr.status})`))
-  }
-}
-
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setProgress(100)
+            resolve()
+          } else {
+            reject(new Error(`upload failed (${xhr.status})`))
+          }
+        }
         xhr.onerror = () => reject(new Error('network error during upload'))
         xhr.ontimeout = () => reject(new Error('upload timeout'))
         xhr.onabort = () => reject(new Error('upload aborted'))
@@ -329,9 +348,9 @@ setAssets((a || []).map((r: { asset: string }) => r.asset))
 
       setStatus(`Uploaded ✅ → ${j.path}`)
     } catch (e: unknown) {
-  const msg = e instanceof Error ? e.message : 'Upload failed'
-  setStatus(`Error: ${msg}`)
-} finally {
+      const msg = e instanceof Error ? e.message : 'Upload failed'
+      setStatus(`Error: ${msg}`)
+    } finally {
       setLoading(false)
       xhrRef.current = null
     }
@@ -341,13 +360,13 @@ setAssets((a || []).map((r: { asset: string }) => r.asset))
   return (
     <main className="mx-auto max-w-2xl p-6">
       <div className="flex justify-end">
-  <Link
-    href="/account/password"
-    className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50"
-  >
-    Change password
-  </Link>
-</div>
+        <Link
+          href="/account/password"
+          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50"
+        >
+          Change password
+        </Link>
+      </div>
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Upload</h1>
@@ -362,7 +381,7 @@ setAssets((a || []).map((r: { asset: string }) => r.asset))
             <option value="">Select a type…</option>
             {types.map((t) => (
               <option key={t.type} value={t.type}>
-                {t.type}
+                {t.label}
               </option>
             ))}
           </select>
