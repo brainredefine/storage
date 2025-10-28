@@ -77,22 +77,19 @@ export async function POST(req: Request) {
     const typeTrim = type.trim()
     const isOther = typeTrim.toLowerCase() === 'other'
 
-    // -------- Rules for known types (from type_routes directly) --------
+    // -------- Rules for known types (from v_upload_types) --------
     let rules: UploadTypeRow | null = null
 
     if (!isOther) {
       const { data: trows, error: terr } = await supabaseAdmin
         .from('v_upload_types')
-        .select<'type, requires_asset, requires_tenant, require_strict, UploadTypeRow>(
-          'type, requires_asset, requires_tenant, require_strict'
-        )
-        .eq('active', true)
+        .select('type, requires_asset, requires_tenant, require_strict')
         .ilike('type', typeTrim) // insensible à la casse
         .limit(1)
 
       if (terr) throw terr
 
-      rules = trows?.[0] ?? null
+      rules = (trows?.[0] as UploadTypeRow | undefined) ?? null
       if (!rules) {
         return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
       }
@@ -121,7 +118,7 @@ export async function POST(req: Request) {
       if (asset) {
         const { data: arows, error: aerr } = await supabaseAdmin
           .from('v_upload_assets')
-          .select<'asset', AssetRow>('asset')
+          .select('asset')
           .eq('asset', asset)
           .limit(1)
 
@@ -147,9 +144,7 @@ export async function POST(req: Request) {
       originalFilename,
     })
 
-    const bucket = isOther
-      ? (process.env.TBD_BUCKET || 'tbd')
-      : (process.env.INBOX_BUCKET || 'inbox')
+    const bucket = isOther ? (process.env.TBD_BUCKET || 'tbd') : (process.env.INBOX_BUCKET || 'inbox')
 
     // -------- Signed upload URL --------
     const { data: signed, error: sErr } = await supabaseAdmin
@@ -167,7 +162,7 @@ export async function POST(req: Request) {
       path: `${bucket}/${finalName}`,
       finalName,
       rules,
-      routedTo: isOther ? 'tbd' : 'inbox' as const,
+      routedTo: (isOther ? 'tbd' : 'inbox') as const,
     }
 
     return NextResponse.json(payload)
