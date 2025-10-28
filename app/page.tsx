@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabaseClient'
 import Link from 'next/link'
 
-// ========= Design tokens (neutral/mono, no blue) =========
 const TOKENS = {
   radius: 'rounded-2xl',
   border: 'border border-neutral-300 dark:border-neutral-700',
@@ -18,7 +17,6 @@ const INPUT_BASE = `w-full ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p
 const LABEL_BASE = 'text-sm font-medium text-neutral-800 dark:text-neutral-100'
 const HELP_TEXT = 'text-xs text-neutral-500 dark:text-neutral-400'
 
-// ========= Utils =========
 const DATE_PLACEHOLDER = 'YYYY or YYYY-MM or YYYY-MM-DD'
 const UPLOAD_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS || 300000)
 const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
@@ -47,7 +45,7 @@ function previewFilename(o: {
 }) {
   if (!o.type || !o.file) return ''
   const ext = (o.file.name.split('.').pop() || '').toLowerCase()
-  const parts: string[] = [o.type] // garde la casse d’origine
+  const parts: string[] = [o.type]
   if (o.date) parts.push(o.date)
   if (o.asset) parts.push(o.asset)
   if (o.tenant) parts.push(sanitizeTenantPreserveCase(o.tenant))
@@ -55,7 +53,6 @@ function previewFilename(o: {
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
 
-// ========= ComboBox (filtrable) =========
 function useFilter(options: string[], query: string) {
   const q = (query || '').toLowerCase()
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
@@ -160,29 +157,27 @@ function ComboBox({
   )
 }
 
-// ========= Types =========
 export type UploadType = {
-  type: string        // fidèle à type_routes (casse originale)
-  label: string       // affichage = même casse
+  type: string
+  label: string
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
 }
 
-// ========= Page =========
 export default function Page() {
   const [types, setTypes] = useState<UploadType[]>([])
   const [assets, setAssets] = useState<string[]>([])
   const [tenants, setTenants] = useState<string[]>([])
 
-  const [type, setType] = useState('')   // valeur affichée (casse fidèle)
+  const [type, setType] = useState('')
   const [date, setDate] = useState('')
   const [asset, setAsset] = useState('')
   const [tenant, setTenant] = useState('')
   const [suffix, setSuffix] = useState('')
   const [file, setFile] = useState<File | null>(null)
 
-  const [status, setStatus] = useState<string>('')  // messages UI
+  const [status, setStatus] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
   const [progress, setProgress] = useState<number>(0)
   const [dateError, setDateError] = useState<string>('')
@@ -190,24 +185,29 @@ export default function Page() {
 
   useEffect(() => {
     ;(async () => {
-      // --- Types depuis type_routes (casse d’origine)
-      type TypeRouteRow = {
-        type: string
-        requires_asset: boolean
-        requires_tenant: boolean
-        require_strict: boolean
-        active?: boolean | null
+      // 1) Types: try v_upload_types, fallback to type_routes
+      const baseCols = 'type, requires_asset, requires_tenant, require_strict'
+
+      let t: any[] | null = null
+      let tErr: unknown = null
+
+      const vTry = await supabaseBrowser.from('v_upload_types').select(baseCols).order('type')
+      if (vTry.error) {
+        tErr = vTry.error
+      } else {
+        t = vTry.data || []
       }
 
-      const { data: t, error: tErr } = await supabaseBrowser
-        .from('v_upload_types')
-        .select('type, requires_asset, requires_tenant, require_strict, active')
-        .eq('active', true)
-        .order('type', { ascending: true })
+      if (!t || t.length === 0) {
+        const trTry = await supabaseBrowser.from('type_routes').select(baseCols).order('type')
+        if (trTry.error) {
+          console.error('type_routes error:', trTry.error)
+        } else {
+          t = trTry.data || []
+        }
+      }
 
-      if (tErr) { console.error(tErr); return }
-
-      const mapped: UploadType[] = (t || []).map((r: TypeRouteRow) => ({
+      const mapped: UploadType[] = (t || []).map((r: any) => ({
         label: r.type,
         type: r.type,
         requires_asset: !!r.requires_asset,
@@ -215,45 +215,38 @@ export default function Page() {
         require_strict: !!r.require_strict,
       }))
 
-      const extended: UploadType[] = [
+      setTypes([
         ...mapped,
         { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false },
-      ]
-      setTypes(extended)
+      ])
 
-      // --- Assets
-      type AssetRow = { asset: string }
-      const { data: a, error: aErr } = await supabaseBrowser
-        .from('v_upload_assets')
-        .select('asset')
-        .order('asset')
-      if (!aErr) setAssets((a || []).map((r: AssetRow) => r.asset))
+      // 2) Assets
+      const aTry = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
+      if (!aTry.error) setAssets((aTry.data || []).map((r: any) => r.asset))
     })()
   }, [])
 
   useEffect(() => {
     if (!asset) { setTenants([]); return }
     ;(async () => {
-      type TenantRow = { tenant: string }
       if (TENANTS_SOURCE === 'folders') {
         const { data, error } = await supabaseBrowser
           .from('v_asset_tenants')
           .select('tenant')
           .eq('asset', asset)
           .order('tenant')
-        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
+        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
       } else {
         const { data, error } = await supabaseBrowser
           .from('seed_asset_tenants')
           .select('tenant')
           .eq('asset', asset)
           .order('tenant')
-        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
+        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
       }
     })()
   }, [asset])
 
-  // Règles du type choisi (insensible à la casse)
   const rules = useMemo(() => {
     const tLc = type.trim().toLowerCase()
     return types.find((x) => x.type.trim().toLowerCase() === tLc)
@@ -280,7 +273,6 @@ export default function Page() {
   async function onUpload() {
     try {
       setStatus(''); setLoading(true); setProgress(0)
-
       if (!file) throw new Error('Choose a file first')
       if (!type) throw new Error('Select a type')
       if (isStrict && !date) throw new Error('Date is required for this type')
@@ -331,7 +323,6 @@ export default function Page() {
     }
   }
 
-  // ========= Layout =========
   return (
     <main className="mx-auto max-w-2xl p-6">
       <div className="flex justify-end">
@@ -346,7 +337,6 @@ export default function Page() {
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
-        {/* Type (ComboBox filtrable) */}
         <ComboBox
           label="Type"
           required
@@ -356,7 +346,6 @@ export default function Page() {
           placeholder={types.length ? 'Type to search types…' : 'Loading…'}
         />
 
-        {/* Disclaimer si Other */}
         {isOther && (
           <div className={`text-sm ${TOKENS.radius} border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200`}>
             <strong>Note:</strong> Select this only if you don’t find what you are looking for, and please write{' '}
@@ -364,7 +353,6 @@ export default function Page() {
           </div>
         )}
 
-        {/* Date */}
         <label className="grid gap-1">
           <span className={LABEL_BASE}>
             Date {isStrict ? '*' : <small className={HELP_TEXT}>(optional)</small>}{' '}
@@ -379,23 +367,19 @@ export default function Page() {
           {dateError && <p className="text-xs text-red-600 dark:text-red-400">{dateError}</p>}
         </label>
 
-        {/* Asset */}
         {needsAsset && (
           <ComboBox label="Asset" required value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" />
         )}
 
-        {/* Tenant */}
         {needsTenant && (
           <ComboBox label="Tenant" required value={tenant} setValue={setTenant} options={tenants} placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'} />
         )}
 
-        {/* Suffix */}
         <label className="grid gap-1">
           <span className={LABEL_BASE}>Optional suffix</span>
           <input value={suffix} onChange={(e) => setSuffix(e.target.value)} className={INPUT_BASE} placeholder="e.g. v2, signed, draft" />
         </label>
 
-        {/* File */}
         <label className="grid gap-1">
           <span className={LABEL_BASE}>File *</span>
           <input
@@ -405,10 +389,8 @@ export default function Page() {
           />
         </label>
 
-        {/* Preview */}
         {namePreview && <p className="text-sm text-neutral-600 dark:text-neutral-300"><strong>Preview:</strong> {namePreview}</p>}
 
-        {/* Actions */}
         <div className="flex items-center gap-2">
           <button onClick={onUpload} disabled={loading} className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition active:translate-y-px disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}>
             {loading ? 'Uploading…' : 'Upload'}
@@ -420,7 +402,6 @@ export default function Page() {
           )}
         </div>
 
-        {/* Progress */}
         {loading && (
           <div className="w-full">
             <div className="h-2 w-full rounded-full bg-neutral-200 dark:bg-neutral-700">
@@ -430,7 +411,6 @@ export default function Page() {
           </div>
         )}
 
-        {/* Status */}
         {status && <p className="text-sm text-neutral-700 dark:text-neutral-300">{status}</p>}
       </section>
     </main>
