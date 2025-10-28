@@ -24,25 +24,16 @@ const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
 function sanitizeTenantPreserveCase(s: string) {
   return s.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').replace(/-+/g, '-')
 }
-
-function uniqCaseInsensitive(arr: string[]) {
+function uniqCaseInsensitive(arr: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const v of arr) {
-    const k = (v || '').toLowerCase()
+    const k = v.toLowerCase()
     if (!seen.has(k)) { seen.add(k); out.push(v) }
   }
   return out.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
-
-function previewFilename(o: {
-  type?: string
-  date?: string
-  asset?: string
-  tenant?: string
-  suffix?: string
-  file?: File | null
-}) {
+function previewFilename(o: { type?: string; date?: string; asset?: string; tenant?: string; suffix?: string; file?: File | null }) {
   if (!o.type || !o.file) return ''
   const ext = (o.file.name.split('.').pop() || '').toLowerCase()
   const parts: string[] = [o.type]
@@ -52,15 +43,12 @@ function previewFilename(o: {
   if (o.suffix) parts.push(sanitizeTenantPreserveCase(o.suffix))
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
-
-function useFilter(options: string[], query: string) {
+function useFilter(options: string[], query: string): string[] {
   const q = (query || '').toLowerCase()
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
 }
 
-function ComboBox({
-  label, value, setValue, options, placeholder = '', required = false, noResultsLabel = 'No results',
-}: {
+interface ComboBoxProps {
   label: string
   value: string
   setValue: (s: string) => void
@@ -68,39 +56,31 @@ function ComboBox({
   placeholder?: string
   required?: boolean
   noResultsLabel?: string
-}) {
+}
+
+function ComboBox({ label, value, setValue, options, placeholder = '', required = false, noResultsLabel = 'No results' }: ComboBoxProps) {
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState<number>(-1)
   const listRef = useRef<HTMLUListElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
-
   const filtered = useFilter(options, value)
   const hasOptions = filtered.length > 0
   const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}`, [])
 
-  function commitSelection(v: string) {
-    setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus()
-  }
+  function commitSelection(v: string) { setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus() }
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) setOpen(true)
     if (!hasOptions) return
-    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % filtered.length); return }
-    if (e.key === 'ArrowUp')    { e.preventDefault(); setHighlight((h) => (h <= 0 ? filtered.length - 1 : h - 1)); return }
-    if (e.key === 'Home')       { e.preventDefault(); setHighlight(0); return }
-    if (e.key === 'End')        { e.preventDefault(); setHighlight(filtered.length - 1); return }
-    if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); commitSelection(filtered[highlight]); return }
-    if (e.key === 'Escape')     { setOpen(false); setHighlight(-1); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => (h + 1) % filtered.length) }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlight((h) => (h <= 0 ? filtered.length - 1 : h - 1)) }
+    if (e.key === 'Home')      { e.preventDefault(); setHighlight(0) }
+    if (e.key === 'End')       { e.preventDefault(); setHighlight(filtered.length - 1) }
+    if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); commitSelection(filtered[highlight]) }
+    if (e.key === 'Escape')    { setOpen(false); setHighlight(-1) }
   }
+  useEffect(() => { if (!listRef.current) return; listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' }) }, [highlight])
   useEffect(() => {
-    if (!listRef.current) return
-    listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [highlight])
-  useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      if (!open) return
-      const t = e.target as Node
-      if (!listRef.current?.parentElement?.contains(t)) setOpen(false)
-    }
+    function onDocClick(e: MouseEvent) { if (!open) return; const t = e.target as Node; if (!listRef.current?.parentElement?.contains(t)) setOpen(false) }
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [open])
@@ -108,9 +88,11 @@ function ComboBox({
   return (
     <div className="grid gap-1 relative">
       <label className={LABEL_BASE}>
-        {label} {required ? <span className="text-red-600 dark:text-red-400" aria-hidden>*</span> : <small className={HELP_TEXT}>(optional)</small>}
+        {label}{' '}
+        {required
+          ? <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
+          : <small className={HELP_TEXT}>(optional)</small>}
       </label>
-
       <div className="relative">
         <input
           ref={inputRef}
@@ -118,31 +100,35 @@ function ComboBox({
           onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls={listboxId}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
           aria-expanded={open}
           aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
           placeholder={placeholder}
           className={`${INPUT_BASE} pr-10`}
           autoComplete="off"
         />
-        <button
-          type="button" aria-label={value ? 'Clear' : 'Toggle'}
-          onClick={() => (value ? setValue('') : setOpen((v) => !v))}
-          className={`absolute inset-y-0 right-0 grid w-10 place-items-center ${TOKENS.radius} text-neutral-500 hover:text-neutral-700`}
-        >
-          {value ? <span aria-hidden>&times;</span> : <span aria-hidden className="translate-y-[1px]">▾</span>}
+        <button type="button" aria-label={value ? 'Clear' : 'Toggle'} onClick={() => (value ? setValue('') : setOpen((v) => !v))} className={`absolute inset-y-0 right-0 grid w-10 place-items-center ${TOKENS.radius} text-neutral-500 hover:text-neutral-700`}>
+          {value ? <span aria-hidden>&times;</span> : <span aria-hidden>▾</span>}
         </button>
       </div>
-
       {open && (
         <div className={`absolute z-50 mt-1 w-full overflow-hidden ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} shadow-lg`}>
           <ul ref={listRef} id={listboxId} role="listbox" className="max-h-60 overflow-auto py-1 outline-none">
             {hasOptions ? (
               filtered.map((opt, i) => (
                 <li
-                  id={`${listboxId}-option-${i}`} key={opt} data-index={i} role="option" aria-selected={i === highlight}
+                  key={opt}
+                  id={`${listboxId}-option-${i}`}
+                  data-index={i}
+                  role="option"
+                  aria-selected={i === highlight}
                   className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'} ${TOKENS.text}`}
-                  onMouseEnter={() => setHighlight(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => commitSelection(opt)}
+                  onMouseEnter={() => setHighlight(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => commitSelection(opt)}
                 >
                   {opt}
                 </li>
@@ -157,118 +143,66 @@ function ComboBox({
   )
 }
 
-export type UploadType = {
-  type: string
-  label: string
-  requires_asset: boolean
-  requires_tenant: boolean
-  require_strict: boolean
-}
+export type UploadType = { type: string; label: string; requires_asset: boolean; requires_tenant: boolean; require_strict: boolean }
+interface AssetRow { asset: string }
+interface TenantRow { tenant: string }
+interface TypeRow { type: string; requires_asset: boolean; requires_tenant: boolean; require_strict: boolean }
 
 export default function Page() {
   const [types, setTypes] = useState<UploadType[]>([])
   const [assets, setAssets] = useState<string[]>([])
   const [tenants, setTenants] = useState<string[]>([])
-
   const [type, setType] = useState('')
   const [date, setDate] = useState('')
   const [asset, setAsset] = useState('')
   const [tenant, setTenant] = useState('')
   const [suffix, setSuffix] = useState('')
   const [file, setFile] = useState<File | null>(null)
-
-  const [status, setStatus] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(false)
-  const [progress, setProgress] = useState<number>(0)
-  const [dateError, setDateError] = useState<string>('')
+  const [status, setStatus] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [dateError, setDateError] = useState('')
   const xhrRef = useRef<XMLHttpRequest | null>(null)
 
   useEffect(() => {
-    ;(async () => {
-      // 1) Types: try v_upload_types, fallback to type_routes
+    (async () => {
       const baseCols = 'type, requires_asset, requires_tenant, require_strict'
-
-      let t: any[] | null = null
-      let tErr: unknown = null
-
-      const vTry = await supabaseBrowser.from('v_upload_types').select(baseCols).order('type')
-      if (vTry.error) {
-        tErr = vTry.error
-      } else {
-        t = vTry.data || []
+      let typesData: TypeRow[] = []
+      const { data: vTypes, error: vErr } = await supabaseBrowser.from('v_upload_types').select(baseCols).order('type')
+      if (!vErr && vTypes && vTypes.length > 0) typesData = vTypes as TypeRow[]
+      else {
+        const { data: tRoutes, error: trErr } = await supabaseBrowser.from('type_routes').select(baseCols).order('type')
+        if (!trErr && tRoutes) typesData = tRoutes as TypeRow[]
       }
-
-      if (!t || t.length === 0) {
-        const trTry = await supabaseBrowser.from('type_routes').select(baseCols).order('type')
-        if (trTry.error) {
-          console.error('type_routes error:', trTry.error)
-        } else {
-          t = trTry.data || []
-        }
-      }
-
-      const mapped: UploadType[] = (t || []).map((r: any) => ({
-        label: r.type,
-        type: r.type,
-        requires_asset: !!r.requires_asset,
-        requires_tenant: !!r.requires_tenant,
-        require_strict: !!r.require_strict,
-      }))
-
-      setTypes([
-        ...mapped,
-        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false },
-      ])
-
-      // 2) Assets
-      const aTry = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
-      if (!aTry.error) setAssets((aTry.data || []).map((r: any) => r.asset))
+      const mapped: UploadType[] = typesData.map((r) => ({ label: r.type, type: r.type, requires_asset: !!r.requires_asset, requires_tenant: !!r.requires_tenant, require_strict: !!r.require_strict }))
+      setTypes([...mapped, { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false }])
+      const { data: aData } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
+      if (aData) setAssets((aData as AssetRow[]).map((r) => r.asset))
     })()
   }, [])
 
   useEffect(() => {
     if (!asset) { setTenants([]); return }
-    ;(async () => {
+    (async () => {
       if (TENANTS_SOURCE === 'folders') {
-        const { data, error } = await supabaseBrowser
-          .from('v_asset_tenants')
-          .select('tenant')
-          .eq('asset', asset)
-          .order('tenant')
-        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
+        const { data, error } = await supabaseBrowser.from('v_asset_tenants').select('tenant').eq('asset', asset).order('tenant')
+        if (!error && data) setTenants(uniqCaseInsensitive((data as TenantRow[]).map((r) => r.tenant)))
       } else {
-        const { data, error } = await supabaseBrowser
-          .from('seed_asset_tenants')
-          .select('tenant')
-          .eq('asset', asset)
-          .order('tenant')
-        if (!error) setTenants(uniqCaseInsensitive((data || []).map((r: any) => r.tenant)))
+        const { data, error } = await supabaseBrowser.from('seed_asset_tenants').select('tenant').eq('asset', asset).order('tenant')
+        if (!error && data) setTenants(uniqCaseInsensitive((data as TenantRow[]).map((r) => r.tenant)))
       }
     })()
   }, [asset])
 
-  const rules = useMemo(() => {
-    const tLc = type.trim().toLowerCase()
-    return types.find((x) => x.type.trim().toLowerCase() === tLc)
-  }, [types, type])
-
+  const rules = useMemo(() => types.find((x) => x.type.trim().toLowerCase() === type.trim().toLowerCase()), [types, type])
   const isOther = type.trim().toLowerCase() === 'other'
   const needsAsset = !!rules?.requires_asset && !isOther
   const needsTenant = !!rules?.requires_tenant && !isOther
   const isStrict = !!rules?.require_strict && !isOther
-
-  const namePreview = useMemo(
-    () => previewFilename({ type, date, asset, tenant, suffix, file }),
-    [type, date, asset, tenant, suffix, file]
-  )
-
+  const namePreview = useMemo(() => previewFilename({ type, date, asset, tenant, suffix, file }), [type, date, asset, tenant, suffix, file])
   function abortUpload() { try { xhrRef.current?.abort() } catch {} }
 
-  useEffect(() => {
-    if (!date) { setDateError(''); return }
-    const ok = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(date)
-    setDateError(ok ? '' : 'Invalid format. Example: 2024 or 2024-09 or 2024-09-30')
-  }, [date])
+  useEffect(() => { if (!date) { setDateError(''); return } const ok = /^\d{4}(-\d{2}(-\d{2})?)?$/.test(date); setDateError(ok ? '' : 'Invalid format. Example: 2024 or 2024-09 or 2024-09-30') }, [date])
 
   async function onUpload() {
     try {
@@ -283,14 +217,7 @@ export default function Page() {
       const res = await fetch('/api/sign-upload', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          date: date || undefined,
-          asset: asset || undefined,
-          tenant: tenant || undefined,
-          suffix: suffix || undefined,
-          originalFilename: file.name,
-        }),
+        body: JSON.stringify({ type, date: date || undefined, asset: asset || undefined, tenant: tenant || undefined, suffix: suffix || undefined, originalFilename: file.name }),
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'sign failed')
@@ -303,100 +230,63 @@ export default function Page() {
         xhr.setRequestHeader('content-type', file.type || 'application/octet-stream')
         xhr.setRequestHeader('x-upsert', 'true')
         xhr.setRequestHeader('cache-control', 'max-age=3600')
-        xhr.upload.onprogress = (evt) => {
-          if (!evt.lengthComputable) return
-          setProgress(Math.round((evt.loaded / evt.total) * 100))
-        }
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? (setProgress(100), resolve()) : reject(new Error(`upload failed (${xhr.status})`))
+        xhr.upload.onprogress = (evt) => { if (evt.lengthComputable) setProgress(Math.round((evt.loaded / evt.total) * 100)) }
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? (setProgress(100), resolve()) : reject(new Error(`upload failed (${xhr.status})`)))
         xhr.onerror = () => reject(new Error('network error during upload'))
         xhr.ontimeout = () => reject(new Error('upload timeout'))
         xhr.onabort = () => reject(new Error('upload aborted'))
         xhr.send(file)
       })
-
       setStatus(`Uploaded ✅ → ${j.path}`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Upload failed'
       setStatus(`Error: ${msg}`)
-    } finally {
-      setLoading(false); xhrRef.current = null
-    }
+    } finally { setLoading(false); xhrRef.current = null }
   }
 
   return (
     <main className="mx-auto max-w-2xl p-6">
       <div className="flex justify-end">
-        <Link href="/account/password" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">
-          Change password
-        </Link>
+        <Link href="/account/password" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">Change password</Link>
       </div>
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Upload</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Neutral, high-contrast UI. No blues. Keyboard-friendly comboboxes.</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Neutral, high-contrast UI. Keyboard-friendly comboboxes.</p>
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
-        <ComboBox
-          label="Type"
-          required
-          value={type}
-          setValue={setType}
-          options={types.map((t) => t.label)}
-          placeholder={types.length ? 'Type to search types…' : 'Loading…'}
-        />
-
+        <ComboBox label="Type" required value={type} setValue={setType} options={types.map((t) => t.label)} placeholder={types.length ? 'Type to search types…' : 'Loading…'} />
         {isOther && (
           <div className={`text-sm ${TOKENS.radius} border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200`}>
             <strong>Note:</strong> Select this only if you don’t find what you are looking for, and please write{' '}
             <a className="underline" href="mailto:gauthier@redefine.group">gauthier@redefine.group</a> to add the missing folders.
           </div>
         )}
-
         <label className="grid gap-1">
-          <span className={LABEL_BASE}>
-            Date {isStrict ? '*' : <small className={HELP_TEXT}>(optional)</small>}{' '}
-            <small className={HELP_TEXT}>{DATE_PLACEHOLDER}</small>
-          </span>
-          <input
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            placeholder={DATE_PLACEHOLDER}
-            className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200' : ''}`}
-          />
+          <span className={LABEL_BASE}>Date {isStrict ? '*' : <small className={HELP_TEXT}>(optional)</small>} <small className={HELP_TEXT}>{DATE_PLACEHOLDER}</small></span>
+          <input value={date} onChange={(e) => setDate(e.target.value)} placeholder={DATE_PLACEHOLDER} className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200' : ''}`} />
           {dateError && <p className="text-xs text-red-600 dark:text-red-400">{dateError}</p>}
         </label>
-
-        {needsAsset && (
-          <ComboBox label="Asset" required value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" />
-        )}
-
-        {needsTenant && (
-          <ComboBox label="Tenant" required value={tenant} setValue={setTenant} options={tenants} placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'} />
-        )}
-
-        <label className="grid gap-1">
-          <span className={LABEL_BASE}>Optional suffix</span>
-          <input value={suffix} onChange={(e) => setSuffix(e.target.value)} className={INPUT_BASE} placeholder="e.g. v2, signed, draft" />
-        </label>
-
-        <label className="grid gap-1">
-          <span className={LABEL_BASE}>File *</span>
-          <input
-            type="file"
-            className="block w-full text-sm text-neutral-800 file:mr-4 file:rounded-xl file:border file:border-neutral-300 file:bg-neutral-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-neutral-800 hover:file:bg-neutral-100 dark:text-neutral-200 dark:file:border-neutral-700 dark:file:bg-neutral-800 dark:file:text-neutral-200 dark:hover:file:bg-neutral-700"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-        </label>
-
+        {needsAsset && <ComboBox label="Asset" required value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" />}
+        {needsTenant && <ComboBox label="Tenant" required value={tenant} setValue={setTenant} options={tenants} placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'} />}
+        <label className="grid gap-1"><span className={LABEL_BASE}>Optional suffix</span><input value={suffix} onChange={(e) => setSuffix(e.target.value)} className={INPUT_BASE} placeholder="e.g. v2, signed, draft" /></label>
+        <label className="grid gap-1"><span className={LABEL_BASE}>File *</span><input type="file" className="block w-full text-sm text-neutral-800 file:mr-4 file:rounded-xl file:border file:border-neutral-300 file:bg-neutral-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-neutral-800 hover:file:bg-neutral-100 dark:text-neutral-200 dark:file:border-neutral-700 dark:file:bg-neutral-800 dark:file:text-neutral-200 dark:hover:file:bg-neutral-700" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label>
         {namePreview && <p className="text-sm text-neutral-600 dark:text-neutral-300"><strong>Preview:</strong> {namePreview}</p>}
-
         <div className="flex items-center gap-2">
-          <button onClick={onUpload} disabled={loading} className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition active:translate-y-px disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}>
+                    <button
+            onClick={onUpload}
+            disabled={loading}
+            className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition active:translate-y-px disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}
+          >
             {loading ? 'Uploading…' : 'Upload'}
           </button>
+
           {loading && (
-            <button onClick={abortUpload} className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:file:bg-neutral-800`}>
+            <button
+              onClick={abortUpload}
+              className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:file:bg-neutral-800`}
+            >
               Cancel
             </button>
           )}
@@ -405,14 +295,24 @@ export default function Page() {
         {loading && (
           <div className="w-full">
             <div className="h-2 w-full rounded-full bg-neutral-200 dark:bg-neutral-700">
-              <div className="h-2 rounded-full bg-neutral-900 transition-all dark:bg-neutral-100" style={{ width: `${progress}%` }} />
+              <div
+                className="h-2 rounded-full bg-neutral-900 transition-all dark:bg-neutral-100"
+                style={{ width: `${progress}%` }}
+              />
             </div>
-            <div className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">{progress}%</div>
+            <div className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
+              {progress}%
+            </div>
           </div>
         )}
 
-        {status && <p className="text-sm text-neutral-700 dark:text-neutral-300">{status}</p>}
+        {status && (
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            {status}
+          </p>
+        )}
       </section>
     </main>
   )
 }
+
