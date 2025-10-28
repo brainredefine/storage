@@ -167,7 +167,6 @@ export type UploadType = {
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
-  allow_keyword: boolean
 }
 
 // ========= Page =========
@@ -197,7 +196,6 @@ export default function Page() {
         requires_asset: boolean
         requires_tenant: boolean
         require_strict: boolean
-        allow_keyword: boolean
         active?: boolean | null
       }
 
@@ -215,12 +213,11 @@ export default function Page() {
         requires_asset: !!r.requires_asset,
         requires_tenant: !!r.requires_tenant,
         require_strict: !!r.require_strict,
-        allow_keyword: !!r.allow_keyword,
       }))
 
       const extended: UploadType[] = [
         ...mapped,
-        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false },
+        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false },
       ]
       setTypes(extended)
 
