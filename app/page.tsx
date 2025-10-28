@@ -26,9 +26,9 @@ const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
 function sanitizeTenantPreserveCase(s: string) {
   return s
     .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^A-Za-z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
+    .replace(/\s+/g, '-')           // espaces → tirets
+    .replace(/[^A-Za-z0-9-_]/g, '-')// caractères sales → tirets
+    .replace(/-+/g, '-')            // compacter
 }
 
 function uniqCaseInsensitive(arr: string[]) {
@@ -51,7 +51,7 @@ function previewFilename(o: {
 }) {
   if (!o.type || !o.file) return ''
   const ext = (o.file.name.split('.').pop() || '').toLowerCase()
-  const parts: string[] = [o.type.toLowerCase()]
+  const parts: string[] = [o.type] // garde la casse d’origine
   if (o.date) parts.push(o.date)
   if (o.asset) parts.push(o.asset)
   if (o.tenant) parts.push(sanitizeTenantPreserveCase(o.tenant))
@@ -114,6 +114,7 @@ function ComboBox({
     listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
 
+  // Close when clicking outside
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!open) return
@@ -137,9 +138,9 @@ function ComboBox({
           onChange={(e) => { setValue(e.target.value); setOpen(true); setHighlight(-1) }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          role="combobox"
+          role="combobox"                // ✅
           aria-autocomplete="list"
-          aria-haspopup="listbox"
+          aria-haspopup="listbox"        // ✅
           aria-controls={listboxId}
           aria-expanded={open}
           aria-activedescendant={highlight >= 0 ? `${listboxId}-option-${highlight}` : undefined}
@@ -189,8 +190,8 @@ function ComboBox({
 
 // ========= Types =========
 export type UploadType = {
-  type: string        // logique interne (minuscule)
-  label: string       // affichage fidèle (casse d’origine)
+  type: string        // fidèle à type_routes (casse originale)
+  label: string       // affichage = même casse
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
@@ -204,7 +205,7 @@ export default function Page() {
   const [assets, setAssets] = useState<string[]>([])
   const [tenants, setTenants] = useState<string[]>([])
 
-  const [type, setType] = useState('')   // valeur minuscule
+  const [type, setType] = useState('')   // valeur affichée (casse fidèle)
   const [date, setDate] = useState('')
   const [asset, setAsset] = useState('')
   const [tenant, setTenant] = useState('')
@@ -219,7 +220,7 @@ export default function Page() {
 
   useEffect(() => {
     ;(async () => {
-      // --- Types depuis type_routes (label fidèle, type minuscule)
+      // --- Types depuis type_routes (casse d’origine)
       type TypeRouteRow = {
         type: string
         requires_asset: boolean
@@ -227,6 +228,7 @@ export default function Page() {
         require_strict: boolean
         allow_keyword: boolean
         aliases: string[] | null
+        active?: boolean | null
       }
 
       const { data: t, error: tErr } = await supabaseBrowser
@@ -242,7 +244,7 @@ export default function Page() {
 
       const mapped: UploadType[] = (t || []).map((r: TypeRouteRow) => ({
         label: r.type,
-        type: r.type.toLowerCase(),
+        type: r.type, // on garde la casse telle quelle
         requires_asset: !!r.requires_asset,
         requires_tenant: !!r.requires_tenant,
         require_strict: !!r.require_strict,
@@ -252,7 +254,7 @@ export default function Page() {
 
       const extended: UploadType[] = [
         ...mapped,
-        { type: 'other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
+        { type: 'Other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
       ]
       setTypes(extended)
 
@@ -298,8 +300,13 @@ export default function Page() {
     })()
   }, [asset])
 
-  const rules = useMemo(() => types.find((t) => t.type === type), [types, type])
-  const isOther = type === 'other'
+  // Règles du type choisi (insensible à la casse)
+  const rules = useMemo(() => {
+    const tLc = type.trim().toLowerCase()
+    return types.find((x) => x.type.trim().toLowerCase() === tLc) || undefined
+  }, [types, type])
+
+  const isOther = type.trim().toLowerCase() === 'other'
   const needsAsset = !!rules?.requires_asset && !isOther
   const needsTenant = !!rules?.requires_tenant && !isOther
   const isStrict = !!rules?.require_strict && !isOther
@@ -309,7 +316,7 @@ export default function Page() {
     [type, date, asset, tenant, suffix, file]
   )
 
-  function abortUpload() { try { xhrRef.current?.abort() } catch {} }
+  function abortUpload() { try { xhrRef.current?.abort() } catch { /* ignore */ } }
 
   useEffect(() => {
     if (!date) { setDateError(''); return }
@@ -330,11 +337,12 @@ export default function Page() {
       if (needsAsset && !asset) throw new Error('Asset is required')
       if (needsTenant && !tenant) throw new Error('Tenant is required')
 
+      // Envoie le type tel quel (casse conservée). Le backend est déjà tolérant.
       const res = await fetch('/api/sign-upload', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          type, // minuscule pour la logique backend
+          type,
           date: date || undefined,
           asset: asset || undefined,
           tenant: tenant || undefined,
@@ -399,21 +407,18 @@ export default function Page() {
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
-        {/* Type */}
-        <label className="grid gap-1">
-          <span className={LABEL_BASE}>Type *</span>
-          <select value={type} onChange={(e) => setType(e.target.value)} className={INPUT_BASE}>
-            <option value="">Select a type…</option>
-            {types.map((t) => (
-              <option key={t.type} value={t.type}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* Type (ComboBox filtrable) */}
+        <ComboBox
+          label="Type"
+          required
+          value={type}
+          setValue={setType}
+          options={types.map((t) => t.label)}
+          placeholder={types.length ? 'Type to search types…' : 'Loading…'}
+        />
 
         {/* Disclaimer si Other */}
-        {type === 'other' && (
+        {type.trim().toLowerCase() === 'other' && (
           <div className={`text-sm ${TOKENS.radius} border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-500 dark:bg-amber-950/40 dark:text-amber-200`}>
             <strong>Note:</strong> Select this only if you don’t find what you are looking for, and please write{' '}
             <a className="underline" href="mailto:gauthier@redefine.group">gauthier@redefine.group</a> to add the missing folders.
@@ -492,7 +497,7 @@ export default function Page() {
           {loading && (
             <button
               onClick={abortUpload}
-              className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800`}
+              className={`${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:file:bg-neutral-800`}
             >
               Cancel
             </button>
