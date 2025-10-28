@@ -20,7 +20,6 @@ type UploadTypeRow = {
   requires_tenant: boolean
   require_strict: boolean
   allow_keyword: boolean
-  aliases: string[] | null
 }
 
 type AssetRow = { asset: string }
@@ -38,23 +37,14 @@ function isValidFlexibleDate(input?: string | null): boolean {
   return DATE_FLEX.test(input.trim())
 }
 
-// garde la casse du tenant, remplace seulement les caractères illégaux dans un nom de fichier
+// garde la casse du tenant, remplace seulement les caractères illégaux
 function sanitizeTenantPreserveCase(input: string) {
-  return input
-    .trim()
-    .replace(/[\\/:*?"<>|]/g, '-') // caractères interdits
-    .replace(/\s+/g, ' ')          // normalise les espaces (mais on les garde)
-    .replace(/-+/g, '-')           // compacte les suites de -
+  return input.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').replace(/-+/g, '-')
 }
 
-// on garde le slug pour le suffix optionnel (pratique)
+// slug pour suffix optionnel
 function slugify(s: string) {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-_]/g, '-')
-    .replace(/-+/g, '-')
+  return s.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-')
 }
 
 function buildFilename(args: {
@@ -67,11 +57,11 @@ function buildFilename(args: {
 }) {
   const { type, date, asset, tenant, suffix, originalFilename } = args
   const ext = (originalFilename.split('.').pop() || '').toLowerCase()
-  const parts: string[] = [type]             // type en minuscules (comme avant)
+  const parts: string[] = [type] // garde la casse telle qu'envoyée
   if (date) parts.push(date)
   if (asset) parts.push(asset)
-  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant)) // au lieu de slugifier en minuscules
-  if (suffix) parts.push(slugify(suffix))                   // suffixe reste slugifié
+  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant))
+  if (suffix) parts.push(slugify(suffix))
   return `${parts.join('_')}.${ext || 'pdf'}`
 }
 
@@ -85,34 +75,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing type or file name' }, { status: 400 })
     }
 
-    const typeLc = type.toLowerCase()
-    const isOther = typeLc === 'other'
+    const typeTrim = type.trim()
+    const isOther = typeTrim.toLowerCase() === 'other'
 
-    // -------- Rules for known types --------
+    // -------- Rules for known types (from type_routes directly) --------
     let rules: UploadTypeRow | null = null
 
     if (!isOther) {
       const { data: trows, error: terr } = await supabaseAdmin
-        .from('v_upload_types')
-        .select<string, UploadTypeRow>('*')
-        .eq('type', typeLc)
+        .from('type_routes')
+        .select<'type, requires_asset, requires_tenant, require_strict, allow_keyword', UploadTypeRow>(
+          'type, requires_asset, requires_tenant, require_strict, allow_keyword'
+        )
+        .eq('active', true)
+        .ilike('type', typeTrim) // insensible à la casse
         .limit(1)
 
       if (terr) throw terr
+
       rules = trows?.[0] ?? null
       if (!rules) {
         return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
       }
 
+      // validations
       if (rules.require_strict) {
         if (!date) {
           return NextResponse.json({ error: 'Date required for strict type' }, { status: 400 })
         }
         if (!isValidFlexibleDate(date)) {
-          return NextResponse.json(
-            { error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' },
-            { status: 400 }
-          )
+          return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
         }
         if (rules.requires_asset && !asset) {
           return NextResponse.json({ error: 'Asset required for this type' }, { status: 400 })
@@ -122,10 +114,7 @@ export async function POST(req: Request) {
         }
       } else {
         if (date && !isValidFlexibleDate(date)) {
-          return NextResponse.json(
-            { error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' },
-            { status: 400 }
-          )
+          return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
         }
       }
 
@@ -133,7 +122,7 @@ export async function POST(req: Request) {
       if (asset) {
         const { data: arows, error: aerr } = await supabaseAdmin
           .from('v_upload_assets')
-          .select<string, AssetRow>('asset')
+          .select<'asset', AssetRow>('asset')
           .eq('asset', asset)
           .limit(1)
 
@@ -143,21 +132,18 @@ export async function POST(req: Request) {
         }
       }
     } else {
-      // Type "other" → minimal constraints
+      // Type "other" → contraintes minimales
       if (date && !isValidFlexibleDate(date)) {
-        return NextResponse.json(
-          { error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
       }
     }
 
     // -------- Build final name & bucket --------
     const finalName = buildFilename({
-      type: typeLc,
+      type: typeTrim,
       date: date ?? null,
       asset: asset ?? null,
-      tenant: tenant ?? null,   // <-- on passe le tenant tel que fourni (casse préservée)
+      tenant: tenant ?? null,
       suffix: suffix ?? null,
       originalFilename,
     })
@@ -176,26 +162,19 @@ export async function POST(req: Request) {
       throw sErr ?? new Error('Failed to create signed upload URL')
     }
 
-    const payload: {
-      signedUrl: string
-      bucket: string
-      path: string
-      finalName: string
-      rules: UploadTypeRow | null
-      routedTo: 'tbd' | 'inbox'
-    } = {
+    const payload = {
       signedUrl: (signed as SignedUploadUrlData).signedUrl,
       bucket,
       path: `${bucket}/${finalName}`,
       finalName,
       rules,
-      routedTo: isOther ? 'tbd' : 'inbox',
+      routedTo: isOther ? 'tbd' : 'inbox' as const,
     }
 
     return NextResponse.json(payload)
-  } catch (e: unknown) {
+  } catch (e) {
     const msg = e instanceof Error ? e.message : 'Internal error'
     console.error(e)
-    return NextResponse.json({ error: msg } as Record<string, unknown>, { status: 500 })
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
