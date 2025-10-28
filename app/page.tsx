@@ -26,9 +26,9 @@ const TENANTS_SOURCE = process.env.NEXT_PUBLIC_TENANTS_SOURCE || 'folders'
 function sanitizeTenantPreserveCase(s: string) {
   return s
     .trim()
-    .replace(/\s+/g, '-')           // espaces → tirets
-    .replace(/[^A-Za-z0-9-_]/g, '-')// caractères sales → tirets
-    .replace(/-+/g, '-')            // compacter
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Za-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
 }
 
 function uniqCaseInsensitive(arr: string[]) {
@@ -114,7 +114,6 @@ function ComboBox({
     listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
 
-  // Close when clicking outside
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!open) return
@@ -190,10 +189,8 @@ function ComboBox({
 
 // ========= Types =========
 export type UploadType = {
-  // logique interne en minuscule
-  type: string
-  // affichage fidèle à la casse de type_routes
-  label: string
+  type: string        // logique interne (minuscule)
+  label: string       // affichage fidèle (casse d’origine)
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
@@ -207,7 +204,7 @@ export default function Page() {
   const [assets, setAssets] = useState<string[]>([])
   const [tenants, setTenants] = useState<string[]>([])
 
-  const [type, setType] = useState('')   // stocke la valeur minuscule
+  const [type, setType] = useState('')   // valeur minuscule
   const [date, setDate] = useState('')
   const [asset, setAsset] = useState('')
   const [tenant, setTenant] = useState('')
@@ -222,53 +219,81 @@ export default function Page() {
 
   useEffect(() => {
     ;(async () => {
-      // Charge directement depuis type_routes pour récupérer la casse d'origine
-      const { data: t } = await supabaseBrowser
+      // --- Types depuis type_routes (label fidèle, type minuscule)
+      type TypeRouteRow = {
+        type: string
+        requires_asset: boolean
+        requires_tenant: boolean
+        require_strict: boolean
+        allow_keyword: boolean
+        aliases: string[] | null
+      }
+
+      const { data: t, error: tErr } = await supabaseBrowser
         .from('type_routes')
-        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, aliases')
+        .select('type, requires_asset, requires_tenant, require_strict, allow_keyword, aliases, active')
         .eq('active', true)
         .order('type', { ascending: true })
 
-      const extended: UploadType[] = [
-        ...((t || []).map((r: any) => ({
-          label: r.type,                 // fidèle à la casse d'origine
-          type: String(r.type || '').toLowerCase(), // normalisé minuscule pour la logique
-          requires_asset: !!r.requires_asset,
-          requires_tenant: !!r.requires_tenant,
-          require_strict: !!r.require_strict,
-          allow_keyword: !!r.allow_keyword,
-          aliases: Array.isArray(r.aliases) ? r.aliases : [],
-        })) as UploadType[]),
+      if (tErr) {
+        console.error(tErr)
+        return
+      }
 
-        // Option "other"
+      const mapped: UploadType[] = (t || []).map((r: TypeRouteRow) => ({
+        label: r.type,
+        type: r.type.toLowerCase(),
+        requires_asset: !!r.requires_asset,
+        requires_tenant: !!r.requires_tenant,
+        require_strict: !!r.require_strict,
+        allow_keyword: !!r.allow_keyword,
+        aliases: Array.isArray(r.aliases) ? r.aliases : [],
+      }))
+
+      const extended: UploadType[] = [
+        ...mapped,
         { type: 'other', label: 'Other', requires_asset: false, requires_tenant: false, require_strict: false, allow_keyword: false, aliases: [] },
       ]
       setTypes(extended)
 
-      // Assets
-      const { data: a } = await supabaseBrowser.from('v_upload_assets').select('asset').order('asset')
-      setAssets((a || []).map((r: { asset: string }) => r.asset))
+      // --- Assets
+      type AssetRow = { asset: string }
+      const { data: a, error: aErr } = await supabaseBrowser
+        .from('v_upload_assets')
+        .select('asset')
+        .order('asset')
+
+      if (aErr) {
+        console.error(aErr)
+      } else {
+        setAssets((a || []).map((r: AssetRow) => r.asset))
+      }
     })()
   }, [])
 
   useEffect(() => {
     if (!asset) { setTenants([]); return }
     ;(async () => {
+      type TenantRow = { tenant: string }
+
       if (TENANTS_SOURCE === 'folders') {
         const { data, error } = await supabaseBrowser
           .from('v_asset_tenants')
           .select('tenant')
           .eq('asset', asset)
           .order('tenant')
+
         if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: { tenant: string }) => r.tenant)))
+        setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
       } else {
         const { data, error } = await supabaseBrowser
           .from('seed_asset_tenants')
           .select('tenant')
-          .eq('asset', asset).order('tenant')
+          .eq('asset', asset)
+          .order('tenant')
+
         if (error) { console.error(error); setTenants([]); return }
-        setTenants(uniqCaseInsensitive((data || []).map((r: { tenant: string }) => r.tenant)))
+        setTenants(uniqCaseInsensitive((data || []).map((r: TenantRow) => r.tenant)))
       }
     })()
   }, [asset])
@@ -309,7 +334,7 @@ export default function Page() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          type,                            // minuscule pour la logique backend
+          type, // minuscule pour la logique backend
           date: date || undefined,
           asset: asset || undefined,
           tenant: tenant || undefined,
@@ -347,7 +372,7 @@ export default function Page() {
       })
 
       setStatus(`Uploaded ✅ → ${j.path}`)
-    } catch (e: unknown) {
+    } catch (e) {
       const msg = e instanceof Error ? e.message : 'Upload failed'
       setStatus(`Error: ${msg}`)
     } finally {
