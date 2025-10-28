@@ -19,7 +19,6 @@ type UploadTypeRow = {
   requires_asset: boolean
   requires_tenant: boolean
   require_strict: boolean
-  allow_keyword: boolean
 }
 
 type AssetRow = { asset: string }
@@ -85,7 +84,7 @@ export async function POST(req: Request) {
       const { data: trows, error: terr } = await supabaseAdmin
         .from('v_upload_types')
         .select<'type, requires_asset, requires_tenant, require_strict, UploadTypeRow>(
-          'type, requires_asset, requires_tenant, require_strict, allow_keyword'
+          'type, requires_asset, requires_tenant, require_strict'
         )
         .eq('active', true)
         .ilike('type', typeTrim) // insensible à la casse
