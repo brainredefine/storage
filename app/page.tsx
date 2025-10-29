@@ -247,6 +247,11 @@ export default function Page() {
   return (
     <main className="mx-auto max-w-2xl p-6">
       <div className="flex justify-end">
+          <Link
+    href="/get"
+    className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">
+    Get documents
+  </Link>
         <Link href="/account/password" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">Change password</Link>
       </div>
 
