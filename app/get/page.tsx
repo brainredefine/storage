@@ -273,7 +273,7 @@ export default function Page() {
           <ComboBox label="Tenant" value={tenant} setValue={setTenant} options={tenants} placeholder={tenants.length ? 'Type to search tenants…' : 'Type a new tenant…'} />
           <label className="grid gap-1">
             <span className={LABEL_BASE}>Date <small className={HELP_TEXT}>{DATE_PLACEHOLDER}</small></span>
-            <input value={date} onChange={(e)=>{} || setDate(e.target.value)} placeholder={DATE_PLACEHOLDER} className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200':''}`} />
+            <input value={date} onChange={(e) => setDate(e.target.value)} placeholder={DATE_PLACEHOLDER} className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200':''}`} />
             {dateError && <p className="text-xs text-red-600 dark:text-red-400">{dateError}</p>}
           </label>
         </div>
