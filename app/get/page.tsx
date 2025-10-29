@@ -208,7 +208,7 @@ export default function Page() {
   const [total, setTotal] = useState<number | null>(null)
   const [signingId, setSigningId] = useState<string | null>(null)
 
-  // Populate Type & Asset directly from documents (client-side distinct)
+  // Populate Type & Asset directly from documents
   useEffect(() => {
     (async () => {
       // Types
@@ -307,19 +307,23 @@ export default function Page() {
     return Math.max(1, Math.ceil(total / PAGE_SIZE))
   }
 
+  // ---------- Option 1: Préfixe "docs/" localement ici ----------
   async function openSigned(r: DocRow) {
     try {
       setSigningId(r.id)
+      const fullPath = r.storage_path.startsWith('docs/')
+        ? r.storage_path
+        : `docs/${r.storage_path}`
+
       const res = await fetch('/api/sign-download', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ storage_path: r.storage_path, expiresIn: 3600 }),
+        body: JSON.stringify({ storage_path: fullPath, expiresIn: 3600 }),
       })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error || 'Signature échouée')
       window.open(j.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (e) {
-      // Feedback minimaliste, tu as déjà un toast/alert peut-être
       alert(e instanceof Error ? e.message : 'Impossible d’ouvrir le document')
     } finally {
       setSigningId(null)
@@ -345,7 +349,7 @@ export default function Page() {
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Documents</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Recherche par type / asset / tenant / date (source: documents).</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Recherche par type / asset / tenant / date (source : documents).</p>
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
@@ -406,7 +410,7 @@ export default function Page() {
                     <td className="px-3 py-2 whitespace-nowrap">{r.tenant || '—'}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{r.doc_date || '—'}</td>
                     <td className="px-3 py-2">
-                      <code className="text-xs break-all">{r.storage_path}</code>
+                      <code className="text-xs break-all">{r.storage_path.startsWith('docs/') ? r.storage_path : `docs/${r.storage_path}`}</code>
                     </td>
                     <td className="px-3 py-2 text-right">
                       <button
