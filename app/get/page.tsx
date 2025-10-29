@@ -349,7 +349,7 @@ export default function Page() {
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Documents</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Recherche par type / asset / tenant / date (source : documents).</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400"></p>
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
@@ -451,7 +451,7 @@ export default function Page() {
             )}
           </div>
         ) : (
-          !loading && <p className={TOKENS.subtext}>Aucun résultat pour l’instant.</p>
+          !loading && <p className={TOKENS.subtext}>No result for now.</p>
         )}
       </section>
     </main>

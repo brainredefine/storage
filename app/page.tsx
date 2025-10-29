@@ -257,7 +257,7 @@ export default function Page() {
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Upload</h1>
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Neutral, high-contrast UI. Keyboard-friendly comboboxes.</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400"></p>
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
