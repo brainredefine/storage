@@ -223,9 +223,10 @@ export default function Page() {
       setRows((data || []) as Row[])
       setTotal(count ?? null)
       setPage(pg)
-    } catch (e:any) {
-      setError(e?.message || 'Search failed')
-    } finally {
+} catch (e) {
+  if (e instanceof Error) setError(e.message)
+  else setError('Search failed')
+} finally {
       setLoading(false)
     }
   }
