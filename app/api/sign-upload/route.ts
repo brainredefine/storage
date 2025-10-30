@@ -1,154 +1,188 @@
-import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+// app/api/sign-upload/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
-export const runtime = 'nodejs'
+/**
+ * Configuration
+ */
+const INBOX_BUCKET = 'inbox'
+const ALLOWED_EXTS = ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx'] as const
+type AllowedExt = (typeof ALLOWED_EXTS)[number]
 
-type SignBody = {
-  type: string
-  date?: string
-  asset?: string
-  tenant?: string
-  suffix?: string
-  originalFilename: string
+/**
+ * Helpers
+ */
+function coerceExt(raw?: string | null): AllowedExt {
+  const ext = (raw || '').trim().toLowerCase()
+  if ((ALLOWED_EXTS as readonly string[]).includes(ext)) return ext as AllowedExt
+  return 'pdf'
 }
 
-type UploadTypeRow = {
-  type: string
-  requires_asset: boolean
-  requires_tenant: boolean
-  require_strict: boolean
+function sanitizeSegment(s?: string | null): string | null {
+  if (!s) return null
+  const t = s
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '-') // caractères interdits
+    .replace(/\s+/g, ' ')          // espaces multiples
+    .replace(/-+/g, '-')           // tirets multiples
+  return t.length ? t : null
 }
 
-type SignedUploadUrlData = {
-  signedUrl: string
-  path: string
+function normalizeAsset(raw?: string | null): string | null {
+  if (!raw) return null
+  const s = raw.trim().replace(/\s+/g, '')
+  return s ? s.toUpperCase() : null
 }
 
-const DATE_FLEX = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/
-function isValidFlexibleDate(input?: string | null): boolean {
-  if (!input) return false
-  return DATE_FLEX.test(input.trim())
-}
-
-function sanitizeTenantPreserveCase(input: string) {
-  return input.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').replace(/-+/g, '-')
-}
-function slugify(s: string) {
-  return s.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-')
-}
-
-function buildFilename(args: {
-  type: string
-  date?: string | null
-  asset?: string | null
-  tenant?: string | null
-  suffix?: string | null
-  originalFilename: string
-}) {
-  const { type, date, asset, tenant, suffix, originalFilename } = args
-  const ext = (originalFilename.split('.').pop() || '').toLowerCase()
-  const parts: string[] = [type]
-  if (date) parts.push(date)
-  if (asset) parts.push(asset)
-  if (tenant) parts.push(sanitizeTenantPreserveCase(tenant))
-  if (suffix) parts.push(slugify(suffix))
-  return `${parts.join('_')}.${ext || 'pdf'}`
-}
-
-// Try v_upload_types first, fallback to type_routes
-async function fetchTypeRule(typeTrim: string): Promise<UploadTypeRow | null> {
-  const cols = 'type, requires_asset, requires_tenant, require_strict'
-
-  // v_upload_types
-  let r = await supabaseAdmin
-    .from('v_upload_types')
-    .select(cols)
-    .ilike('type', typeTrim)
-    .limit(1)
-
-  if (!r.error && r.data && r.data.length) {
-    return r.data[0] as UploadTypeRow
-  }
-
-  // fallback type_routes
-  r = await supabaseAdmin
-    .from('type_routes')
-    .select(cols)
-    .ilike('type', typeTrim)
-    .limit(1)
-
-  if (!r.error && r.data && r.data.length) {
-    return r.data[0] as UploadTypeRow
-  }
-
-  if (r.error) throw r.error
+function normalizeDate(dateRaw?: string | null): string | null {
+  if (!dateRaw) return null
+  const s = dateRaw.trim()
+  // accepte YYYY, YYYY-MM, YYYY-MM-DD
+  if (/^\d{4}$/.test(s)) return `${s}-01-01`
+  if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
   return null
 }
 
-export async function POST(req: Request) {
+// hash court & stable -> base36 6 chars
+function shortCode(input: string): string {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return (h >>> 0).toString(36).slice(0, 6)
+}
+
+/**
+ * Construit le nom de base (sans tag u-xxxxxx).
+ * Format strict: type_date[_asset][_tenant][_suffix].ext
+ * - type: requis
+ * - date: requis côté route (tu peux assouplir si besoin)
+ * - asset/tenant/suffix: optionnels
+ */
+function buildBaseName(opts: {
+  type: string
+  date: string
+  asset?: string | null
+  tenant?: string | null
+  suffix?: string | null
+  originalFilename?: string | null
+  ext: AllowedExt
+}): string {
+  const type = (opts.type || '').trim()
+  if (!type) throw new Error('type_required')
+
+  const date = normalizeDate(opts.date)
+  if (!date) throw new Error('date_invalid')
+
+  const parts: string[] = []
+  parts.push(type)
+  parts.push(date)
+
+  const asset = normalizeAsset(opts.asset || null)
+  if (asset) parts.push(asset)
+
+  const tenant = sanitizeSegment(opts.tenant || null)
+  if (tenant) parts.push(tenant)
+
+  const suffix = sanitizeSegment(opts.suffix || null)
+  if (suffix) parts.push(suffix)
+
+  return `${parts.join('_')}.${opts.ext}`
+}
+
+/**
+ * Ajoute _u-xxxxxx avant l’extension
+ */
+function appendPersonTag(base: string, personTag?: string | null) {
+  if (!personTag) return base
+  const dot = base.lastIndexOf('.')
+  if (dot === -1) return `${base}_${personTag}`
+  return `${base.slice(0, dot)}_${personTag}${base.slice(dot)}`
+}
+
+/**
+ * Handler
+ */
+export async function POST(req: NextRequest) {
   try {
-    const raw = (await req.json().catch(() => ({}))) as Partial<SignBody>
-    const { type, date, asset, tenant, suffix, originalFilename } = raw
+    const supabase = createRouteHandlerClient({ cookies })
 
-    if (!type || !originalFilename) {
-      return NextResponse.json({ error: 'Missing type or file name' }, { status: 400 })
+    // lecture payload
+    const body = await req.json().catch(() => ({}))
+    const {
+      type,
+      date,
+      asset,
+      tenant,
+      suffix,
+      originalFilename,
+      ext: extFromClient,
+      // tout champ additionnel sera ignoré
+    }: {
+      type?: string
+      date?: string
+      asset?: string
+      tenant?: string
+      suffix?: string
+      originalFilename?: string
+      ext?: string
+    } = body || {}
+
+    // auth: nécessaire pour générer le tag uploadeur
+    const { data: { user }, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !user) {
+      return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
     }
 
-    const typeTrim = type.trim()
-    const isOther = typeTrim.toLowerCase() === 'other'
+    // extension : d’abord via payload.ext, sinon via originalFilename, sinon PDF
+    const payloadExt = coerceExt(extFromClient)
+    const inferredExt = coerceExt((originalFilename || '').split('.').pop())
+    const ext: AllowedExt = payloadExt || inferredExt || 'pdf'
 
-    let rules: UploadTypeRow | null = null
-    if (!isOther) {
-      rules = await fetchTypeRule(typeTrim)
-      if (!rules) return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
-
-      if (rules.require_strict) {
-        if (!date) return NextResponse.json({ error: 'Date required for strict type' }, { status: 400 })
-        if (!isValidFlexibleDate(date)) return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
-        if (rules.requires_asset && !asset) return NextResponse.json({ error: 'Asset required for this type' }, { status: 400 })
-        if (rules.requires_tenant && !tenant) return NextResponse.json({ error: 'Tenant required for this type' }, { status: 400 })
-      } else {
-        if (date && !isValidFlexibleDate(date)) {
-          return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
-        }
-      }
-    } else {
-      if (date && !isValidFlexibleDate(date)) {
-        return NextResponse.json({ error: 'Invalid date format (use YYYY or YYYY-MM or YYYY-MM-DD)' }, { status: 400 })
-      }
-    }
-
-    const finalName = buildFilename({
-      type: typeTrim,
-      date: date ?? null,
+    // nom de base strict (sans tag)
+    const baseName = buildBaseName({
+      type: String(type || ''),
+      date: String(date || ''),
       asset: asset ?? null,
       tenant: tenant ?? null,
       suffix: suffix ?? null,
-      originalFilename,
+      originalFilename: originalFilename ?? null,
+      ext,
     })
 
-    const bucket = isOther ? (process.env.TBD_BUCKET || 'tbd') : (process.env.INBOX_BUCKET || 'inbox')
+    // tag d’uploadeur (stable)
+    const code = shortCode(user.id || user.email || 'anon')
+    const personTag = `u-${code}`
 
-    const { data: signed, error: sErr } = await supabaseAdmin
-      .storage
-      .from(bucket)
+    // nom final signé (ajout du tag)
+    const finalName = appendPersonTag(baseName, personTag)
+
+    // URL signée PUT vers le bucket INBOX
+    const { data: signed, error: signErr } = await supabase.storage
+      .from(INBOX_BUCKET)
       .createSignedUploadUrl(finalName)
 
-    if (sErr || !signed) throw sErr ?? new Error('Failed to create signed upload URL')
-
-    const routedTo: 'tbd' | 'inbox' = isOther ? 'tbd' : 'inbox'
+    if (signErr || !signed?.signedUrl) {
+      return NextResponse.json(
+        { error: signErr?.message || 'sign_failed' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
-      signedUrl: (signed as SignedUploadUrlData).signedUrl,
-      bucket,
-      path: `${bucket}/${finalName}`,
-      finalName,
-      rules,
-      routedTo,
+      signedUrl: signed.signedUrl,
+      path: finalName,         // où uploader dans INBOX
+      baseName,                // sans le tag (info)
+      personTag,               // ex: u-abc123 (info)
+      bucket: INBOX_BUCKET,
     })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Internal error'
-    console.error(e)
-    return NextResponse.json({ error: msg }, { status: 500 })
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || 'unknown_error' },
+      { status: 500 }
+    )
   }
 }
