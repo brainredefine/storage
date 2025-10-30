@@ -11,6 +11,19 @@ const ALLOWED_EXTS = ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx'] as const
 type AllowedExt = (typeof ALLOWED_EXTS)[number]
 
 /**
+ * Types
+ */
+type UploadPayload = {
+  type?: string
+  date?: string
+  asset?: string
+  tenant?: string
+  suffix?: string
+  originalFilename?: string
+  ext?: string
+}
+
+/**
  * Helpers
  */
 function coerceExt(raw?: string | null): AllowedExt {
@@ -38,7 +51,6 @@ function normalizeAsset(raw?: string | null): string | null {
 function normalizeDate(dateRaw?: string | null): string | null {
   if (!dateRaw) return null
   const s = dateRaw.trim()
-  // accepte YYYY, YYYY-MM, YYYY-MM-DD
   if (/^\d{4}$/.test(s)) return `${s}-01-01`
   if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
@@ -58,9 +70,6 @@ function shortCode(input: string): string {
 /**
  * Construit le nom de base (sans tag u-xxxxxx).
  * Format strict: type_date[_asset][_tenant][_suffix].ext
- * - type: requis
- * - date: requis côté route (tu peux assouplir si besoin)
- * - asset/tenant/suffix: optionnels
  */
 function buildBaseName(opts: {
   type: string
@@ -111,7 +120,7 @@ export async function POST(req: NextRequest) {
     const supabase = createRouteHandlerClient({ cookies })
 
     // lecture payload
-    const body = await req.json().catch(() => ({}))
+    const body = (await req.json().catch(() => ({}))) as UploadPayload
     const {
       type,
       date,
@@ -120,19 +129,13 @@ export async function POST(req: NextRequest) {
       suffix,
       originalFilename,
       ext: extFromClient,
-      // tout champ additionnel sera ignoré
-    }: {
-      type?: string
-      date?: string
-      asset?: string
-      tenant?: string
-      suffix?: string
-      originalFilename?: string
-      ext?: string
-    } = body || {}
+    } = body
 
     // auth: nécessaire pour générer le tag uploadeur
-    const { data: { user }, error: userErr } = await supabase.auth.getUser()
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser()
     if (userErr || !user) {
       return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
     }
@@ -167,22 +170,20 @@ export async function POST(req: NextRequest) {
 
     if (signErr || !signed?.signedUrl) {
       return NextResponse.json(
-        { error: signErr?.message || 'sign_failed' },
+        { error: signErr?.message ?? 'sign_failed' },
         { status: 500 }
       )
     }
 
     return NextResponse.json({
       signedUrl: signed.signedUrl,
-      path: finalName,         // où uploader dans INBOX
-      baseName,                // sans le tag (info)
-      personTag,               // ex: u-abc123 (info)
+      path: finalName, // où uploader dans INBOX
+      baseName,        // sans le tag (info)
+      personTag,       // ex: u-abc123 (info)
       bucket: INBOX_BUCKET,
     })
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || 'unknown_error' },
-      { status: 500 }
-    )
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
