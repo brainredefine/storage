@@ -1,18 +1,14 @@
-// app/api/sign-upload/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 /**
- * Configuration
+ * Config
  */
 const INBOX_BUCKET = 'inbox'
 const ALLOWED_EXTS = ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx'] as const
 type AllowedExt = (typeof ALLOWED_EXTS)[number]
 
-/**
- * Types
- */
 type UploadPayload = {
   type?: string
   date?: string
@@ -36,9 +32,9 @@ function sanitizeSegment(s?: string | null): string | null {
   if (!s) return null
   const t = s
     .trim()
-    .replace(/[\\/:*?"<>|]/g, '-') // caractères interdits
-    .replace(/\s+/g, ' ')          // espaces multiples
-    .replace(/-+/g, '-')           // tirets multiples
+    .replace(/[\\/:*?"<>|]/g, '-') // caractères interdits pour chemins
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
   return t.length ? t : null
 }
 
@@ -57,19 +53,9 @@ function normalizeDate(dateRaw?: string | null): string | null {
   return null
 }
 
-// hash court & stable -> base36 6 chars
-function shortCode(input: string): string {
-  let h = 2166136261 >>> 0
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i)
-    h = Math.imul(h, 16777619) >>> 0
-  }
-  return (h >>> 0).toString(36).slice(0, 6)
-}
-
 /**
- * Construit le nom de base (sans tag u-xxxxxx).
- * Format strict: type_date[_asset][_tenant][_suffix].ext
+ * Construit le nom de base (sans email).
+ * Format: type_date[_asset][_tenant][_suffix].ext
  */
 function buildBaseName(opts: {
   type: string
@@ -103,13 +89,14 @@ function buildBaseName(opts: {
 }
 
 /**
- * Ajoute _u-xxxxxx avant l’extension
+ * On ajoute le suffixe email avant l’extension (en gardant le '@' pour détection).
+ * On supprime uniquement les caractères non valides pour un chemin (on garde @.+-_)
  */
-function appendPersonTag(base: string, personTag?: string | null) {
-  if (!personTag) return base
+function appendEmailSuffix(base: string, email: string) {
+  const safeEmail = email.trim().replace(/[\\/:*?"<>|]/g, '') // retire séparateurs/forbidden
   const dot = base.lastIndexOf('.')
-  if (dot === -1) return `${base}_${personTag}`
-  return `${base.slice(0, dot)}_${personTag}${base.slice(dot)}`
+  if (dot === -1) return `${base}_${safeEmail}`
+  return `${base.slice(0, dot)}_${safeEmail}${base.slice(dot)}`
 }
 
 /**
@@ -119,33 +106,21 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies })
 
-    // lecture payload
     const body = (await req.json().catch(() => ({}))) as UploadPayload
-    const {
-      type,
-      date,
-      asset,
-      tenant,
-      suffix,
-      originalFilename,
-      ext: extFromClient,
-    } = body
+    const { type, date, asset, tenant, suffix, originalFilename, ext: extFromClient } = body
 
-    // auth: nécessaire pour générer le tag uploadeur
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser()
-    if (userErr || !user) {
+    // Auth: on a besoin de l'email
+    const { data: { user }, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !user || !user.email) {
       return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
     }
 
-    // extension : d’abord via payload.ext, sinon via originalFilename, sinon PDF
+    // extension : payload > originalFilename > pdf
     const payloadExt = coerceExt(extFromClient)
     const inferredExt = coerceExt((originalFilename || '').split('.').pop())
     const ext: AllowedExt = payloadExt || inferredExt || 'pdf'
 
-    // nom de base strict (sans tag)
+    // nom de base sans email
     const baseName = buildBaseName({
       type: String(type || ''),
       date: String(date || ''),
@@ -156,14 +131,10 @@ export async function POST(req: NextRequest) {
       ext,
     })
 
-    // tag d’uploadeur (stable)
-    const code = shortCode(user.id || user.email || 'anon')
-    const personTag = `u-${code}`
+    // suffixe email (pour que la Edge le détecte et le retire)
+    const finalName = appendEmailSuffix(baseName, user.email)
 
-    // nom final signé (ajout du tag)
-    const finalName = appendPersonTag(baseName, personTag)
-
-    // URL signée PUT vers le bucket INBOX
+    // URL signée PUT vers INBOX
     const { data: signed, error: signErr } = await supabase.storage
       .from(INBOX_BUCKET)
       .createSignedUploadUrl(finalName)
@@ -177,9 +148,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       signedUrl: signed.signedUrl,
-      path: finalName, // où uploader dans INBOX
-      baseName,        // sans le tag (info)
-      personTag,       // ex: u-abc123 (info)
+      path: finalName,   // INBOX/<finalName> (avec email)
+      baseName,          // sans email (info)
+      email: user.email, // info
       bucket: INBOX_BUCKET,
     })
   } catch (err: unknown) {
