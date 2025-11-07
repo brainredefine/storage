@@ -1,13 +1,8 @@
-<<<<<<< HEAD
 // app/api/sign-download/route.ts  (ou src/app/... si tu as un dossier src)
-=======
-// app/api/sign-download/route.ts
->>>>>>> 69fa770cfc823c47d3d007a8e8e3473ffa8708db
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const runtime = 'nodejs'
-<<<<<<< HEAD
 export const dynamic = 'force-dynamic'
 
 type Body = { storage_path?: string; expiresIn?: number }
@@ -90,27 +85,6 @@ export async function POST(req: Request) {
   } catch (e) {
     console.error('[sign-download] unexpected', e)
     const msg = e instanceof Error ? e.message : 'Internal error'
-=======
-
-type Body = { storage_path?: string; expiresIn?: number }
-
-export async function POST(req: Request) {
-  try {
-    const { storage_path, expiresIn = 3600 } = (await req.json().catch(() => ({}))) as Body
-    if (!storage_path) return NextResponse.json({ error: 'Missing storage_path' }, { status: 400 })
-
-    const [bucket, ...rest] = storage_path.split('/')
-    const path = rest.join('/')
-    if (!bucket || !path) return NextResponse.json({ error: 'Invalid storage_path' }, { status: 400 })
-
-    const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUrl(path, expiresIn)
-    if (error || !data?.signedUrl) throw error ?? new Error('Failed to sign download')
-
-    return NextResponse.json({ signedUrl: data.signedUrl })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Internal error'
-    console.error(e)
->>>>>>> 69fa770cfc823c47d3d007a8e8e3473ffa8708db
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
