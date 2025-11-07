@@ -17,52 +17,55 @@ function isPublicAsset(pathname: string) {
 }
 
 export async function middleware(req: NextRequest) {
+  // Important: passe req/res à Supabase pour que les cookies soient synchronisés
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req, res })
-  const { data: { session } } = await supabase.auth.getSession()
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
 
   const url = req.nextUrl
   const { pathname } = url
 
-  // Autorise preflight CORS pour l'API
+  // Autoriser les preflight CORS pour l’API
   if (pathname.startsWith('/api') && req.method === 'OPTIONS') return res
 
-  // Assets publics
+  // Laisser passer les assets publics
   if (isPublicAsset(pathname)) return res
 
-  // ⛳️ /set-password : public côté middleware
-  // (la page vérifiera la session Supabase; sans session => redirect /login)
-  if (pathname === '/set-password') {
-    return res
-  }
+  // Page set-password : publique côté middleware (la page re-vérifie la session)
+  if (pathname === '/set-password') return res
 
-  // /login public, mais si déjà loggé → /
+  // /login est public, mais si déjà loggé → redirection
   if (pathname === '/login') {
     if (session) {
+      const redirectTarget = url.searchParams.get('redirect') || '/'
       const u = url.clone()
-      u.pathname = '/'
+      u.pathname = redirectTarget
       u.search = ''
       return NextResponse.redirect(u)
     }
     return res
   }
 
-  // Protection globale (pages & API)
+  // ---- Protection globale ----
   if (!session) {
-    // Pour les pages → redirect vers /login (avec retour post-auth)
+    // Pour les pages → redirect vers /login (avec retour post-auth via ?redirect=…)
     if (!pathname.startsWith('/api')) {
       const u = url.clone()
       u.pathname = '/login'
-      u.searchParams.set('redirectTo', pathname + url.search)
+      u.searchParams.set('redirect', pathname + url.search)
       return NextResponse.redirect(u)
     }
     // Pour l'API → 401 JSON
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Session OK → continuer
   return res
 }
 
 export const config = {
+  // protège tout sauf les fichiers statiques Next (_next) & co. (déjà filtrés par isPublicAsset)
   matcher: ['/:path*', '/api/:path*'],
 }
