@@ -19,7 +19,7 @@ const TOKENS = {
 const INPUT_BASE = `w-full ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 ${TOKENS.text} placeholder:text-neutral-400 ${TOKENS.focus}`
 const LABEL_BASE = 'text-sm font-medium text-neutral-800 dark:text-neutral-100'
 const HELP_TEXT = 'text-xs text-neutral-500 dark:text-neutral-400'
-const DATE_PLACEHOLDER = 'YYYY or YYYY-MM'
+const DATE_PLACEHOLDER = 'YYYY-MM or YYYY-MM-DD'
 const UPLOAD_TIMEOUT_MS: number = Number(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS ?? 300000)
 
 /* ---------- Types ---------- */
@@ -29,6 +29,54 @@ type TenantBridgeRow = { tenant_no: number | null; tenant_name: string | null }
 type SignUploadResponse = { signedUrl: string; path: string } | { error: string }
 
 /* ---------- Helpers ---------- */
+// 1) Filename transliteration + cleanup (umlauts → ae/oe/ue/ss; strip diacritics; remove path-unsafe chars)
+function sanitizeFilename(input: string): string {
+  const replaced = input.replace(/[äöüÄÖÜß]/g, (ch) => {
+    switch (ch) {
+      case 'ä': return 'ae'
+      case 'ö': return 'oe'
+      case 'ü': return 'ue'
+      case 'Ä': return 'Ae'
+      case 'Ö': return 'Oe'
+      case 'Ü': return 'Ue'
+      case 'ß': return 'ss'
+      default: return ch
+    }
+  })
+  .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[\/\\:*?"<>|]/g, '-')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+  return replaced.length ? replaced : 'unnamed'
+}
+
+// 2) Tag value sanitization (must be ASCII-safe since it goes inside m(...))
+//    - transliterate umlauts + strip diacritics like above
+//    - drop parentheses and equals so they don't clash with buildMetaFilename format
+//    - keep letters, digits, spaces, ._- ; collapse spaces
+function sanitizeTagValue(input: string): string {
+  const translit = input.replace(/[äöüÄÖÜß]/g, (ch) => {
+    switch (ch) {
+      case 'ä': return 'ae'
+      case 'ö': return 'oe'
+      case 'ü': return 'ue'
+      case 'Ä': return 'Ae'
+      case 'Ö': return 'Oe'
+      case 'Ü': return 'Ue'
+      case 'ß': return 'ss'
+      default: return ch
+    }
+  }).normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  // remove characters that can break meta format or paths
+  .replace(/[()=]/g, '-')              // avoid interfering with m( key=value )
+  .replace(/[\/\\:*?"<>|]/g, '-')      // path-unsafe
+  .replace(/\s+/g, ' ')
+  .trim()
+
+  return translit.length ? translit : ''
+}
+
 function uniqCaseInsensitive(source: readonly string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -47,15 +95,7 @@ function useFilter(options: readonly string[], query: string): string[] {
   const q = (query || '').toLowerCase()
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
 }
-// "type_date_asset.ext" (pour extraire si Right Number Already)
-const STRICT_RE = /^(\d+(?:\.\d+){0,20})_(\d{4}(?:-\d{2})?)_([A-Za-z0-9-]+)(?:_.+)?\.([A-Za-z0-9]+)$/i
-function extractTypeFromFilename(name: string): string | null {
-  const m = STRICT_RE.exec(name)
-  if (m) return m[1] ?? null
-  const base = name.replace(/\.[^.]+$/, '')
-  const token = (base.split(' ')[0] || '').trim()
-  return /^\d+(?:\.\d+){0,20}$/.test(token) ? token : null
-}
+
 function isTenantCaseType(code: string): boolean {
   return /^1\.7(\.|$)/.test(code) || /^1\.9\.5\.1(\.|$)/.test(code)
 }
@@ -70,6 +110,7 @@ function addTenantToType(base: string, tenantNo?: string): string {
   return t ? `${base}.${t}` : base
 }
 
+/* ---------- Combobox ---------- */
 type ComboBoxProps = {
   label: ReactNode
   value: string
@@ -198,10 +239,6 @@ export default function Page() {
   const [typeName, setTypeName] = useState<string>('')                 // tname
   const [file, setFile] = useState<File | null>(null)
 
-  // Right Number Already
-  const [rightNumberAlready, setRightNumberAlready] = useState<boolean>(false)
-  const [extractedType, setExtractedType] = useState<string | null>(null)
-
   // UX
   const [status, setStatus] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
@@ -217,7 +254,7 @@ export default function Page() {
     })()
   }, [])
 
-  // Load types & assets
+  // Load types & assets (drop v_upload_assets to avoid 404)
   useEffect(() => {
     void (async () => {
       const { data: tpData } = await supabaseBrowser
@@ -238,41 +275,17 @@ export default function Page() {
       opts.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
       setTypeMap(map); setTypeOptions(opts)
 
-      const { data: vAssets } = await supabaseBrowser
-        .from('v_upload_assets')
+      const { data: tbAssets } = await supabaseBrowser
+        .from('tenant_asset_bridge')
         .select('asset')
         .order('asset', { ascending: true })
 
-      if (vAssets) {
-        const list = ((vAssets as ReadonlyArray<AssetRow>) ?? [])
-          .map((r) => r.asset?.trim() ?? '')
-          .filter((s) => s.length > 0)
-        setAssets(uniqCaseInsensitive(list))
-      } else {
-        const { data: tbAssets } = await supabaseBrowser
-          .from('tenant_asset_bridge')
-          .select('asset')
-          .order('asset', { ascending: true })
-        const list = ((tbAssets as ReadonlyArray<AssetRow> | null) ?? [])
-          .map((r) => r.asset?.trim() ?? '')
-          .filter((s) => s.length > 0)
-        setAssets(uniqCaseInsensitive(list))
-      }
+      const list = ((tbAssets as ReadonlyArray<AssetRow> | null) ?? [])
+        .map((r) => r.asset?.trim() ?? '')
+        .filter((s) => s.length > 0)
+      setAssets(uniqCaseInsensitive(list))
     })()
   }, [])
-
-  // Extract type from filename when "Right Number Already"
-  useEffect(() => {
-    if (rightNumberAlready && file?.name) setExtractedType(extractTypeFromFilename(file.name))
-    else setExtractedType(null)
-  }, [rightNumberAlready, file])
-
-  // Date validation
-  useEffect(() => {
-    if (!date) { setDateError(''); return }
-    const ok = /^\d{4}(?:-\d{2})?$/.test(date)
-    setDateError(ok ? '' : 'Invalid date. Example: 2025 or 2025-07')
-  }, [date])
 
   // Tenants for selected asset
   useEffect(() => {
@@ -302,7 +315,7 @@ export default function Page() {
   // Whether we need tenant number appended
   const typeCodeSelected = typeMap.get(typeDisplay.trim() || '') ?? ''
   const tenantCaseNeedsNo: boolean =
-    !rightNumberAlready && Boolean(typeCodeSelected) && isTenantCaseType(typeCodeSelected) && !hasTenantAlready(typeCodeSelected)
+    Boolean(typeCodeSelected) && isTenantCaseType(typeCodeSelected) && !hasTenantAlready(typeCodeSelected)
 
   // When UI pick changes, keep only the tenant_no for the system
   useEffect(() => {
@@ -317,25 +330,22 @@ export default function Page() {
     try { xhrRef.current?.abort() } catch { /* no-op */ }
   }
 
-  // META filename preview (ajout tmail si présent)
+  // META filename preview — use SANITIZED filename and SANITIZED tag values
   const namePreview = useMemo<string>(() => {
-    const code =
-      rightNumberAlready ? (extractedType || '') :
-      tenantCaseNeedsNo ? addTenantToType(typeCodeSelected, tenantNo) :
-      typeCodeSelected
-
+    const code = tenantCaseNeedsNo ? addTenantToType(typeCodeSelected, tenantNo) : typeCodeSelected
     if (!code || !file) return ''
 
+    const sanitizedOriginal = sanitizeFilename(file.name)
     const tags: Record<string,string> = {
       ttype: code,
-      tasset: asset,
-      tname: typeName ? sanitizeSegmentKeepCase(typeName) : '',
-      tscope: type_f,
+      tasset: sanitizeTagValue(asset),
+      tname: typeName ? sanitizeTagValue(typeName) : '',
+      tscope: 'asset',
     }
     if (date) tags.tdate = date
-    if (userEmail) tags.tmail = userEmail
-    return buildMetaFilename(tags, file.name)
-  }, [rightNumberAlready, extractedType, tenantCaseNeedsNo, typeCodeSelected, tenantNo, date, asset, typeName, file, type_f, userEmail])
+    if (userEmail) tags.tmail = userEmail // email is ASCII; safe to keep
+    return buildMetaFilename(tags, sanitizedOriginal)
+  }, [tenantCaseNeedsNo, typeCodeSelected, tenantNo, date, asset, typeName, file, userEmail])
 
   async function onUpload(): Promise<void> {
     try {
@@ -346,27 +356,25 @@ export default function Page() {
       if (!asset) throw new Error('Asset is required')
       if (!typeName.trim()) throw new Error('Type name is required')
 
-      let finalType = ''
-      if (rightNumberAlready) {
-        if (!extractedType) throw new Error('Could not detect type from filename')
-        finalType = extractedType
-      } else {
-        const code = typeCodeSelected
-        if (!code) throw new Error('Select a type')
-        finalType = tenantCaseNeedsNo ? addTenantToType(code, tenantNo) : code
-        if (isTenantCaseType(code) && !hasTenantAlready(finalType)) {
-          throw new Error('Tenant number required for this type')
-        }
+      const code = typeCodeSelected
+      if (!code) throw new Error('Select a type')
+
+      const finalType = tenantCaseNeedsNo ? addTenantToType(code, tenantNo) : code
+      if (isTenantCaseType(code) && !hasTenantAlready(finalType)) {
+        throw new Error('Tenant number required for this type')
       }
+
+      const originalForServer = sanitizeFilename(file.name)
+      const typeNameForServer = sanitizeTagValue(typeName)
+      const assetForServer = sanitizeTagValue(asset)
 
       const body: Record<string, unknown> = {
         type: finalType,
         date,
-        asset,
-        type_name: typeName,
-        originalFilename: file.name,
-        rightNumberAlready,
-        type_f,           // 'asset'
+        asset: assetForServer,
+        type_name: typeNameForServer,
+        originalFilename: originalForServer,
+        type_f: 'asset',
       }
       if (userEmail) body.tmail = userEmail
 
@@ -394,7 +402,7 @@ export default function Page() {
         xhr.send(file)
       })
 
-      setStatus(`Uploaded ✅ → ${j.path}`)
+      setStatus(`Uploaded ✅ → ${'path' in j ? j.path : ''}`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Upload failed'
       setStatus(`Error: ${msg}`)
@@ -416,82 +424,68 @@ export default function Page() {
       </header>
 
       <section className={`grid gap-5 ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} p-5 shadow-sm`}>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={rightNumberAlready} onChange={(e) => setRightNumberAlready(e.target.checked)} />
-          <span className={LABEL_BASE}>Right Number Already</span>
-        </label>
+        {/* 1) TYPE (★) */}
+        <ComboBox
+          label="Type"
+          value={typeDisplay}
+          setValue={setTypeDisplay}
+          options={typeOptions}
+          placeholder={typeOptions.length ? 'Type to search… (you can append .<tenantNo>)' : 'Loading…'}
+          required
+        />
 
-        {rightNumberAlready ? (
-          <label className="grid gap-1">
-            <span className={LABEL_BASE}>Detected type (from filename)</span>
-            <input value={extractedType || ''} readOnly className={`${INPUT_BASE} opacity-70`} placeholder="—" />
-          </label>
-        ) : (
+        {/* 2) ASSET (★) */}
+        <ComboBox label="Asset" value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" required />
+
+        {/* 3) TENANT si besoin (★ quand 1.7 / 1.9.5.1) */}
+        {Boolean(typeCodeSelected) && isTenantCaseType(typeCodeSelected) && !hasTenantAlready(typeCodeSelected) && (
           <>
-            {/* 1) TYPE (★) */}
-            <ComboBox
-              label="Type"
-              value={typeDisplay}
-              setValue={setTypeDisplay}
-              options={typeOptions}
-              placeholder={typeOptions.length ? 'Type to search… (you can append .<tenantNo>)' : 'Loading…'}
-              required
-            />
-
-            {/* 2) ASSET (★) */}
-            <ComboBox label="Asset" value={asset} setValue={setAsset} options={assets} placeholder="Type to search assets…" required />
-
-            {/* 3) TENANT si besoin (★ quand 1.7 / 1.9.5.1) */}
-            {tenantCaseNeedsNo && (
-              <>
-                {asset ? (
-                  <ComboBox
-                    label={<>Tenant (no — name) <span className="text-red-600 dark:text-red-400" aria-hidden>*</span></>}
-                    value={tenantDisplay}
-                    setValue={setTenantDisplay}
-                    options={tenantOptions}
-                    placeholder={tenantOptions.length ? 'Type to filter tenants…' : 'No tenants found for this asset'}
-                  />
-                ) : (
-                  <label className="grid gap-1">
-                    <span className={LABEL_BASE}>
-                      Tenant number <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
-                    </span>
-                    <input
-                      value={tenantNo}
-                      onChange={(e) => setTenantNo(e.target.value.replace(/[^\d]/g, ''))}
-                      className={INPUT_BASE}
-                      placeholder="e.g. 12"
-                    />
-                  </label>
-                )}
-                <p className={HELP_TEXT}>
-                  Appended to type: {typeCodeSelected || '—'}{tenantNo ? `.${tenantNo}` : ''}
-                </p>
-              </>
-            )}
-
-            {/* 4) TYPE NAME (★) */}
-            <label className="grid gap-1">
-              <span className={LABEL_BASE}>
-                Type name <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
-              </span>
-              <input value={typeName} onChange={(e) => setTypeName(e.target.value)} className={INPUT_BASE} placeholder="e.g. Mietvertrag" />
-            </label>
-
-            {/* 5) DATE (optionnelle) */}
-            <label className="grid gap-1">
-              <span className={LABEL_BASE}>Date</span>
-              <input
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                placeholder={DATE_PLACEHOLDER}
-                className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200' : ''}`}
+            {asset ? (
+              <ComboBox
+                label={<>Tenant (no — name) <span className="text-red-600 dark:text-red-400" aria-hidden>*</span></>}
+                value={tenantDisplay}
+                setValue={setTenantDisplay}
+                options={tenantOptions}
+                placeholder={tenantOptions.length ? 'Type to filter tenants…' : 'No tenants found for this asset'}
               />
-              {dateError && <p className="text-xs text-red-600 dark:text-red-400">{dateError}</p>}
-            </label>
+            ) : (
+              <label className="grid gap-1">
+                <span className={LABEL_BASE}>
+                  Tenant number <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
+                </span>
+                <input
+                  value={tenantNo}
+                  onChange={(e) => setTenantNo(e.target.value.replace(/[^\d]/g, ''))}
+                  className={INPUT_BASE}
+                  placeholder="e.g. 12"
+                />
+              </label>
+            )}
+            <p className={HELP_TEXT}>
+              Appended to type: {typeCodeSelected || '—'}{tenantNo ? `.${tenantNo}` : ''}
+            </p>
           </>
         )}
+
+        {/* 4) TYPE NAME (★) */}
+        <label className="grid gap-1">
+          <span className={LABEL_BASE}>
+            Type name <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
+          </span>
+          <input value={typeName} onChange={(e) => setTypeName(e.target.value)} className={INPUT_BASE} placeholder="e.g. Mietvertrag" />
+        </label>
+
+        {/* 5) DATE (optionnelle) */}
+        <label className="grid gap-1">
+          <span className={LABEL_BASE}>Date</span>
+          <input
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            placeholder={DATE_PLACEHOLDER}
+            className={`${INPUT_BASE} ${dateError ? 'border-red-400 focus:ring-red-200' : ''}`}
+          />
+          {dateError && <p className="text-xs text-red-600 dark:text-red-400">{dateError}</p>}
+        </label>
 
         <label className="grid gap-1">
           <span className={LABEL_BASE}>File</span>

@@ -17,7 +17,7 @@ const TOKENS = {
 const INPUT_BASE = `w-full ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 ${TOKENS.text} placeholder:text-neutral-400 ${TOKENS.focus}`
 const LABEL_BASE = 'text-sm font-medium text-neutral-800 dark:text-neutral-100'
 const HELP_TEXT = 'text-xs text-neutral-500 dark:text-neutral-400'
-const DATE_PLACEHOLDER = 'YYYY or YYYY-MM'
+const DATE_PLACEHOLDER = 'YYYY-MM or YYYY-MM-DD'
 const UPLOAD_TIMEOUT_MS: number = Number(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS ?? 300000)
 
 /* ---------- Types ---------- */
@@ -45,7 +45,7 @@ function useFilter(options: readonly string[], query: string): string[] {
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
 }
 // "type_date_spv.ext" (extraction si Right Number Already)
-const STRICT_RE = /^(\d+(?:\.\d+){0,20})_(\d{4}(?:-\d{2})?)_([A-Za-z0-9-]+)(?:_.+)?\.([A-Za-z0-9]+)$/i
+const STRICT_RE = /^(\d+(?:\.\d+){0,20})_(\d{4}-\d{2}(?:-\d{2})?)_([A-Za-z0-9-]+)(?:_.+)?\.([A-Za-z0-9]+)$/i
 function extractTypeFromFilename(name: string): string | null {
   const m = STRICT_RE.exec(name)
   if (m) return m[1] ?? null
@@ -243,8 +243,8 @@ export default function Page() {
   // Date validation (optional)
   useEffect(() => {
     if (!date) { setDateError(''); return }
-    const ok = /^\d{4}(?:-\d{2})?$/.test(date)
-    setDateError(ok ? '' : 'Invalid date. Example: 2025 or 2025-07')
+    const ok = /^\d{4}-\d{2}(?:-\d{2})?$/.test(date)
+    setDateError(ok ? '' : 'Invalid date. Examples: 2025-07 or 2025-07-15')
   }, [date])
 
   function abortUpload(): void {

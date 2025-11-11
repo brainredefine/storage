@@ -23,6 +23,7 @@ type DocRow = {
   id: string
   type: string | null
   storage_path: string
+  name: string | null
   asset: string | null
   spv: string | null
   tenant: string | null
@@ -48,6 +49,13 @@ function useFilter(options: readonly string[], query: string): string[] {
   return options.filter((o) => o.toLowerCase().includes(q)).slice(0, 100)
 }
 
+// Display helper: show only the filename while keeping full path in data
+function filenameFromPath(p: string): string {
+  const full = p.startsWith('docs/') ? p : `docs/${p}`
+  const parts = full.split('/')
+  return parts[parts.length - 1] || full
+}
+
 type ComboBoxProps = {
   label: string
   value: string
@@ -66,7 +74,7 @@ function ComboBox({
   const inputRef = useRef<HTMLInputElement | null>(null)
   const filtered = useFilter(options, value)
   const hasOptions = filtered.length > 0
-  const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}`, [])
+  const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}` , [])
 
   function commitSelection(v: string) {
     setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus()
@@ -274,7 +282,7 @@ export default function Page() {
 
       let q = supabaseBrowser
         .from('documents')
-        .select('id,type,storage_path,asset,spv,tenant,doc_date,created_at', { count: 'exact' })
+        .select('id,type,storage_path,name,asset,spv,tenant,doc_date,created_at', { count: 'exact' })
         .order('doc_date', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
 
@@ -336,14 +344,8 @@ export default function Page() {
 
   return (
     <main className="mx-auto max-w-5xl p-6">
-      <div className="flex justify-end gap-2">
-        <Link href="/" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">
-          Upload
-        </Link>
-        <Link href="/account/password" className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50">
-          Change password
-        </Link>
-      </div>
+      {/* Top buttons -> redirect to app/page.tsx (/) */}
+      
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Documents</h1>
@@ -409,7 +411,7 @@ export default function Page() {
                   <th className="px-3 py-2">SPV</th>
                   <th className="px-3 py-2">Tenant</th>
                   <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Path</th>
+                  <th className="px-3 py-2">Document</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
@@ -422,7 +424,7 @@ export default function Page() {
                     <td className="px-3 py-2 whitespace-nowrap">{r.tenant ?? '—'}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{r.doc_date ?? '—'}</td>
                     <td className="px-3 py-2">
-                      <code className="text-xs break-all">{r.storage_path.startsWith('docs/') ? r.storage_path : `docs/${r.storage_path}`}</code>
+                      <span className="text-xs break-all">{r.name ?? filenameFromPath(r.storage_path)}</span>
                     </td>
                     <td className="px-3 py-2 text-right">
                       <button
