@@ -1,4 +1,3 @@
-// app/set-password/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -17,7 +16,7 @@ export default function SetPasswordPage() {
   useEffect(() => {
     ;(async () => {
       const { data } = await supabase.auth.getUser()
-      // si pas loggué (lien expiré / mauvais flux) → retour login
+      // Si lien invalide / expiré → pas d'user → retour login
       if (!data.user) {
         router.replace('/login')
       } else {
@@ -40,7 +39,7 @@ export default function SetPasswordPage() {
       return
     }
 
-    // Password OK → on peut rediriger vers l’app principale
+    // MDP OK -> redirection vers l’app
     router.replace('/')
   }
 
@@ -64,7 +63,8 @@ export default function SetPasswordPage() {
           disabled={loading}
           className="rounded px-3 py-2 border"
         >
-          {loading ? 'En cours…' : 'Valider'}
+          {loading ? 'En cours…' : 'Valider'
+          }
         </button>
       </form>
     </main>

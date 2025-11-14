@@ -6,13 +6,18 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 export async function GET(req: NextRequest) {
   const requestUrl = new URL(req.url)
   const code = requestUrl.searchParams.get('code')
-  const redirect = requestUrl.searchParams.get('redirect') || '/'
+  const redirectParam = requestUrl.searchParams.get('redirect')
+
+  const supabase = createRouteHandlerClient({ cookies })
 
   if (code) {
-    const supabase = createRouteHandlerClient({ cookies })
-    // crée la session (via magic link / invite / email confirm)
+    // Crée la session à partir du code de l’URL
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  return NextResponse.redirect(new URL(redirect, requestUrl.origin))
+  // Où envoyer l’utilisateur après création de session ?
+  const nextPath = redirectParam || '/set-password'
+  const redirectUrl = new URL(nextPath, requestUrl.origin)
+
+  return NextResponse.redirect(redirectUrl)
 }

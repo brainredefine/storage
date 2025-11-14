@@ -37,8 +37,8 @@ export async function middleware(req: NextRequest) {
     return res
   }
 
-  // Callback Supabase (magic link / invitations / reset, etc.)
-  if (pathname === '/auth/callback') {
+  // Callback Supabase (magic link / invites / reset...)
+  if (pathname.startsWith('/auth/callback')) {
     return res
   }
 
