@@ -17,9 +17,9 @@ function isPublicAsset(pathname: string) {
 }
 
 export async function middleware(req: NextRequest) {
-  // Important: passe req/res à Supabase pour que les cookies soient synchronisés
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req, res })
+
   const {
     data: { session },
   } = await supabase.auth.getSession()
@@ -28,13 +28,24 @@ export async function middleware(req: NextRequest) {
   const { pathname } = url
 
   // Autoriser les preflight CORS pour l’API
-  if (pathname.startsWith('/api') && req.method === 'OPTIONS') return res
+  if (pathname.startsWith('/api') && req.method === 'OPTIONS') {
+    return res
+  }
 
   // Laisser passer les assets publics
-  if (isPublicAsset(pathname)) return res
+  if (isPublicAsset(pathname)) {
+    return res
+  }
+
+  // Callback Supabase (magic link / invitations / reset, etc.)
+  if (pathname === '/auth/callback') {
+    return res
+  }
 
   // Page set-password : publique côté middleware (la page re-vérifie la session)
-  if (pathname === '/set-password') return res
+  if (pathname === '/set-password') {
+    return res
+  }
 
   // /login est public, mais si déjà loggé → redirection
   if (pathname === '/login') {
@@ -54,9 +65,11 @@ export async function middleware(req: NextRequest) {
     if (!pathname.startsWith('/api')) {
       const u = url.clone()
       u.pathname = '/login'
-      u.searchParams.set('redirect', pathname + url.search)
+      const originalPath = pathname + (url.search || '')
+      u.searchParams.set('redirect', originalPath)
       return NextResponse.redirect(u)
     }
+
     // Pour l'API → 401 JSON
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -66,6 +79,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // protège tout sauf les fichiers statiques Next (_next) & co. (déjà filtrés par isPublicAsset)
   matcher: ['/:path*', '/api/:path*'],
 }

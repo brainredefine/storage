@@ -131,7 +131,13 @@ function ComboBox({
   const hasOptions = filtered.length > 0
   const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}`, [])
 
-  function commitSelection(v: string): void { setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus() }
+  function commitSelection(v: string): void {
+    setValue(v)
+    setOpen(false)
+    setHighlight(-1)
+    inputRef.current?.focus()
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) setOpen(true)
     if (!hasOptions) return
@@ -142,10 +148,14 @@ function ComboBox({
     if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); commitSelection(filtered[highlight]!) }
     if (e.key === 'Escape')    { setOpen(false); setHighlight(-1) }
   }
+
   useEffect(() => {
     if (!listRef.current) return
-    listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
+    listRef.current
+      .querySelector<HTMLElement>(`[data-index="${highlight}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
+
   useEffect(() => {
     function onDocClick(e: MouseEvent): void {
       if (!open) return
@@ -179,35 +189,52 @@ function ComboBox({
           className={`${INPUT_BASE} pr-10`}
           autoComplete="off"
         />
-        <button type="button" aria-label={value ? 'Clear' : 'Toggle'} onClick={() => (value ? setValue('') : setOpen((v) => !v))} className={`absolute inset-y-0 right-0 grid w-10 place-items-center ${TOKENS.radius} text-neutral-500 hover:text-neutral-700`}>
+        <button
+          type="button"
+          aria-label={value ? 'Clear' : 'Toggle'}
+          onClick={() => (value ? setValue('') : setOpen((v) => !v))}
+          className={`absolute inset-y-0 right-0 grid w-10 place-items-center ${TOKENS.radius} text-neutral-500 hover:text-neutral-700`}
+        >
           {value ? <span aria-hidden>&times;</span> : <span aria-hidden>▾</span>}
         </button>
+
+        {open && (
+          <div
+            className={`absolute top-full left-0 right-0 mt-1 z-50 overflow-hidden ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} shadow-lg`}
+          >
+            <ul
+              ref={listRef}
+              id={listboxId}
+              role="listbox"
+              className="max-h-60 overflow-auto py-1 outline-none"
+            >
+              {hasOptions ? (
+                filtered.map((opt, i) => (
+                  <li
+                    key={`${opt}-${i}`}
+                    id={`${listboxId}-option-${i}`}
+                    data-index={i}
+                    role="option"
+                    aria-selected={i === highlight}
+                    className={`cursor-pointer px-3 py-2 text-sm ${
+                      i === highlight
+                        ? 'bg-neutral-100 dark:bg-neutral-800'
+                        : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'
+                    } ${TOKENS.text}`}
+                    onMouseEnter={() => setHighlight(i)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => commitSelection(opt)}
+                  >
+                    {opt}
+                  </li>
+                ))
+              ) : (
+                <li className={`px-3 py-2 text-sm ${TOKENS.subtext}`}>{noResultsLabel}</li>
+              )}
+            </ul>
+          </div>
+        )}
       </div>
-      {open && (
-        <div className={`absolute z-50 mt-1 w-full overflow-hidden ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} shadow-lg`}>
-          <ul ref={listRef} id={listboxId} role="listbox" className="max-h-60 overflow-auto py-1 outline-none">
-            {hasOptions ? (
-              filtered.map((opt, i) => (
-                <li
-                  key={`${opt}-${i}`}
-                  id={`${listboxId}-option-${i}`}
-                  data-index={i}
-                  role="option"
-                  aria-selected={i === highlight}
-                  className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'} ${TOKENS.text}`}
-                  onMouseEnter={() => setHighlight(i)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commitSelection(opt)}
-                >
-                  {opt}
-                </li>
-              ))
-            ) : (
-              <li className={`px-3 py-2 text-sm ${TOKENS.subtext}`}>{noResultsLabel}</li>
-            )}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }
@@ -430,7 +457,7 @@ export default function Page() {
           value={typeDisplay}
           setValue={setTypeDisplay}
           options={typeOptions}
-          placeholder={typeOptions.length ? 'Type to search… (you can append .<tenantNo>)' : 'Loading…'}
+          placeholder={typeOptions.length ? 'Type to search…' : 'Loading…'}
           required
         />
 

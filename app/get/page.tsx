@@ -74,7 +74,7 @@ function ComboBox({
   const inputRef = useRef<HTMLInputElement | null>(null)
   const filtered = useFilter(options, value)
   const hasOptions = filtered.length > 0
-  const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}` , [])
+  const listboxId = useMemo(() => `listbox-${Math.random().toString(36).slice(2)}`, [])
 
   function commitSelection(v: string) {
     setValue(v); setOpen(false); setHighlight(-1); inputRef.current?.focus()
@@ -89,10 +89,14 @@ function ComboBox({
     if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); commitSelection(filtered[highlight]!) }
     if (e.key === 'Escape') { setOpen(false); setHighlight(-1) }
   }
+
   useEffect(() => {
     if (!listRef.current) return
-    listRef.current.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' })
+    listRef.current
+      .querySelector<HTMLElement>(`[data-index="${highlight}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
+
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!open) return
@@ -107,7 +111,9 @@ function ComboBox({
     <div className="grid gap-1 relative">
       <label className={LABEL_BASE}>
         {label}{' '}
-        {required ? <span className="text-red-600 dark:text-red-400" aria-hidden>*</span> : <small className={HELP_TEXT}>(optional)</small>}
+        {required
+          ? <span className="text-red-600 dark:text-red-400" aria-hidden>*</span>
+          : <small className={HELP_TEXT}>(optional)</small>}
       </label>
       <div className="relative">
         <input
@@ -134,32 +140,44 @@ function ComboBox({
         >
           {value ? <span aria-hidden>&times;</span> : <span aria-hidden>▾</span>}
         </button>
+
+        {open && (
+          <div
+            className={`absolute top-full left-0 right-0 mt-1 z-50 overflow-hidden ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} shadow-lg`}
+          >
+            <ul
+              ref={listRef}
+              id={listboxId}
+              role="listbox"
+              className="max-h-60 overflow-auto py-1 outline-none"
+            >
+              {hasOptions ? (
+                filtered.map((opt, i) => (
+                  <li
+                    key={`${opt}-${i}`}
+                    id={`${listboxId}-option-${i}`}
+                    data-index={i}
+                    role="option"
+                    aria-selected={i === highlight}
+                    className={`cursor-pointer px-3 py-2 text-sm ${
+                      i === highlight
+                        ? 'bg-neutral-100 dark:bg-neutral-800'
+                        : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'
+                    } ${TOKENS.text}`}
+                    onMouseEnter={() => setHighlight(i)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => commitSelection(opt)}
+                  >
+                    {opt}
+                  </li>
+                ))
+              ) : (
+                <li className={`px-3 py-2 text-sm ${TOKENS.subtext}`}>{noResultsLabel}</li>
+              )}
+            </ul>
+          </div>
+        )}
       </div>
-      {open && (
-        <div className={`absolute z-50 mt-1 w-full overflow-hidden ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} shadow-lg`}>
-          <ul ref={listRef} id={listboxId} role="listbox" className="max-h-60 overflow-auto py-1 outline-none">
-            {hasOptions ? (
-              filtered.map((opt, i) => (
-                <li
-                  key={`${opt}-${i}`}
-                  id={`${listboxId}-option-${i}`}
-                  data-index={i}
-                  role="option"
-                  aria-selected={i === highlight}
-                  className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? 'bg-neutral-100 dark:bg-neutral-800' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/70'} ${TOKENS.text}`}
-                  onMouseEnter={() => setHighlight(i)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commitSelection(opt)}
-                >
-                  {opt}
-                </li>
-              ))
-            ) : (
-              <li className={`px-3 py-2 text-sm ${TOKENS.subtext}`}>{noResultsLabel}</li>
-            )}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }
@@ -345,7 +363,14 @@ export default function Page() {
   return (
     <main className="mx-auto max-w-5xl p-6">
       {/* Top buttons -> redirect to app/page.tsx (/) */}
-      
+      <div className="flex gap-2 justify-end">
+        <Link
+          href="/"
+          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-gray-50"
+        >
+          Sections
+        </Link>
+      </div>
 
       <header className="mb-2">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">Documents</h1>
