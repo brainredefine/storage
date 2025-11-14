@@ -17,6 +17,7 @@ function isPublicAsset(pathname: string) {
 }
 
 export async function middleware(req: NextRequest) {
+  // Important: passe req/res à Supabase pour que les cookies soient synchronisés
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req, res })
 
@@ -34,11 +35,6 @@ export async function middleware(req: NextRequest) {
 
   // Laisser passer les assets publics
   if (isPublicAsset(pathname)) {
-    return res
-  }
-
-  // Callback Supabase (magic link / invites / reset...)
-  if (pathname.startsWith('/auth/callback')) {
     return res
   }
 
@@ -65,8 +61,7 @@ export async function middleware(req: NextRequest) {
     if (!pathname.startsWith('/api')) {
       const u = url.clone()
       u.pathname = '/login'
-      const originalPath = pathname + (url.search || '')
-      u.searchParams.set('redirect', originalPath)
+      u.searchParams.set('redirect', pathname + url.search)
       return NextResponse.redirect(u)
     }
 
@@ -79,5 +74,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // protège tout sauf les fichiers statiques Next (_next) & co. (déjà filtrés par isPublicAsset)
   matcher: ['/:path*', '/api/:path*'],
 }
