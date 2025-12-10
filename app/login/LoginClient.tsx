@@ -1,93 +1,79 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabaseBrowser } from '@/lib/supabaseClient'
+import { createBrowserClient } from '@supabase/ssr' 
+// ^ Note: on importe createBrowserClient ici si tu n'as pas un fichier global
 
-const TOKENS = {
-  radius: 'rounded-2xl',
-  border: 'border border-neutral-300 dark:border-neutral-700',
-  surface: 'bg-white dark:bg-neutral-900',
-  text: 'text-neutral-900 dark:text-neutral-100',
-  focus: 'focus:ring-2 focus:ring-neutral-300 focus:outline-none',
-} as const
-const INPUT = `w-full ${TOKENS.radius} ${TOKENS.border} ${TOKENS.surface} px-3 py-2 text-sm ${TOKENS.text} placeholder:text-neutral-400 ${TOKENS.focus}`
-
-export default function LoginClient({ redirect }: { redirect: string }) {
+export default function LoginClient() {
   const router = useRouter()
+  // On crée le client directement ici ou importé depuis tes libs
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string>('')
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      const { data } = await supabaseBrowser.auth.getSession()
-      if (mounted && data.session) {
-        router.replace(redirect)
-        router.refresh()
-      }
-    })()
-    return () => { mounted = false }
-  }, [router, redirect])
-
-  async function onSubmit(e: React.FormEvent) {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
     setLoading(true)
-    try {
-      const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password })
-      if (error) throw error
-      router.replace(redirect)
-      router.refresh()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed')
-    } finally {
+    setError('')
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error) {
+      setError("Identifiants incorrects") // Ou error.message pour le détail
       setLoading(false)
+    } else {
+      // Login réussi : On refresh pour que le Middleware détecte le nouveau cookie
+      router.refresh()
+      router.replace('/') 
     }
   }
 
   return (
-    <main className="mx-auto max-w-sm p-8">
-      <h1 className="mb-4 text-2xl font-semibold text-neutral-900 dark:text-neutral-50">Login</h1>
-
-      <form onSubmit={onSubmit} className="grid gap-4">
-        <label className="grid gap-1">
-          <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Email</span>
+    <div className="flex h-screen items-center justify-center bg-gray-100">
+      <form onSubmit={handleLogin} className="w-full max-w-sm rounded bg-white p-8 shadow-md">
+        <h2 className="mb-6 text-center text-2xl font-bold">Accès Interne</h2>
+        
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-bold text-gray-700">Email</label>
           <input
             type="email"
-            className={INPUT}
+            required
+            className="w-full rounded border px-3 py-2 leading-tight text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
           />
-        </label>
-
-        <label className="grid gap-1">
-          <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">Password</span>
+        </div>
+        
+        <div className="mb-6">
+          <label className="mb-2 block text-sm font-bold text-gray-700">Mot de passe</label>
           <input
             type="password"
-            className={INPUT}
+            required
+            className="w-full rounded border px-3 py-2 leading-tight text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
           />
-        </label>
+        </div>
 
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p className="mb-4 text-center text-sm text-red-500">{error}</p>}
 
         <button
-          type="submit"
           disabled={loading}
-          className={`inline-flex items-center justify-center ${TOKENS.radius} bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900`}
+          className="w-full rounded bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? 'Connexion...' : 'Se connecter'}
         </button>
       </form>
-    </main>
+    </div>
   )
 }

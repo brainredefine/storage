@@ -1,14 +1,10 @@
-// app/login/page.tsx
-import { Suspense } from 'react'
 import LoginClient from './LoginClient'
 
+// On garde ça car l'auth dépend des cookies (donnée dynamique)
 export const dynamic = 'force-dynamic'
 
-export default function Page({ searchParams }: { searchParams: { redirect?: string } }) {
-  const redirect = searchParams?.redirect ?? '/'
-  return (
-    <Suspense fallback={null}>
-      <LoginClient redirect={redirect} />
-    </Suspense>
-  )
+export default function Page() {
+  // Plus besoin de searchParams, ni de Suspense
+  // On affiche juste le formulaire brut.
+  return <LoginClient />
 }

@@ -1,79 +1,71 @@
 // middleware.ts
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
-function isPublicAsset(pathname: string) {
-  return (
-    pathname.startsWith('/_next/') ||
-    pathname === '/favicon.ico' ||
-    pathname === '/robots.txt' ||
-    pathname === '/sitemap.xml' ||
-    pathname === '/manifest.webmanifest' ||
-    pathname.startsWith('/images') ||
-    pathname.startsWith('/public') ||
-    pathname.startsWith('/.well-known')
-  )
-}
+export async function middleware(request: NextRequest) {
+  // Préparer la réponse (nécessaire pour manipuler les cookies)
+  let response = NextResponse.next({
+    request: { headers: request.headers },
+  })
 
-export async function middleware(req: NextRequest) {
-  // Important: passe req/res à Supabase pour que les cookies soient synchronisés
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  const url = req.nextUrl
-  const { pathname } = url
-
-  // Autoriser les preflight CORS pour l’API
-  if (pathname.startsWith('/api') && req.method === 'OPTIONS') {
-    return res
-  }
-
-  // Laisser passer les assets publics
-  if (isPublicAsset(pathname)) {
-    return res
-  }
-
-  // Page set-password : publique côté middleware (la page re-vérifie la session)
-  if (pathname === '/set-password') {
-    return res
-  }
-
-  // /login est public, mais si déjà loggé → redirection
-  if (pathname === '/login') {
-    if (session) {
-      const redirectTarget = url.searchParams.get('redirect') || '/'
-      const u = url.clone()
-      u.pathname = redirectTarget
-      u.search = ''
-      return NextResponse.redirect(u)
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          request.cookies.set({ name, value, ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
+          response.cookies.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.set({ name, value: '', ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
+          response.cookies.set({ name, value: '', ...options })
+        },
+      },
     }
-    return res
+  )
+
+  // Vérifier l'utilisateur (Gère automatiquement le Refresh Token et les erreurs)
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const url = request.nextUrl
+  const path = url.pathname
+
+  // 1. IGNORER les fichiers statiques (images, _next, api, etc.)
+  if (path.startsWith('/_next') || path.startsWith('/static') || path.startsWith('/api') || path.includes('.')) {
+    return response
   }
 
-  // ---- Protection globale ----
-  if (!session) {
-    // Pour les pages → redirect vers /login (avec retour post-auth via ?redirect=…)
-    if (!pathname.startsWith('/api')) {
+  // 2. SI NON CONNECTÉ
+  if (!user) {
+    // Si on n'est pas déjà sur /login, on y va de force
+    if (path !== '/login') {
       const u = url.clone()
       u.pathname = '/login'
-      u.searchParams.set('redirect', pathname + url.search)
+      // Optionnel : garder la redirection pour après le login
+      // u.searchParams.set('redirect', path) 
       return NextResponse.redirect(u)
     }
-
-    // Pour l'API → 401 JSON
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Session OK → continuer
-  return res
+  // 3. SI CONNECTÉ
+  if (user) {
+    // Si on essaie d'aller sur /login, on renvoie vers l'accueil
+    if (path === '/login') {
+      const u = url.clone()
+      u.pathname = '/'
+      return NextResponse.redirect(u)
+    }
+  }
+
+  return response
 }
 
 export const config = {
-  // protège tout sauf les fichiers statiques Next (_next) & co. (déjà filtrés par isPublicAsset)
-  matcher: ['/:path*', '/api/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
